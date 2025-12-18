@@ -1,0 +1,116 @@
+<UserControl x:Class="DataverseDebugger.App.Views.RunnerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:conv="clr-namespace:DataverseDebugger.App.Converters"
+             mc:Ignorable="d" 
+             d:DesignHeight="400" d:DesignWidth="600">
+    <UserControl.Resources>
+        <conv:LogLinePartConverter x:Key="RunnerLogTimestampConverter" Part="Timestamp"/>
+        <conv:LogLinePartConverter x:Key="RunnerLogMessageConverter" Part="Message"/>
+        <Style x:Key="RunnerLogTimestampStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="Padding" Value="6 2"/>
+        </Style>
+        <Style x:Key="RunnerLogMessageStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="Padding" Value="6 2 18 2"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="TextTrimming" Value="None"/>
+        </Style>
+    </UserControl.Resources>
+    <Border Background="White" CornerRadius="8" Padding="16" BorderBrush="#E0E0E0" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="210"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Health" Foreground="#37474F" FontSize="14" FontWeight="SemiBold" Margin="0 0 0 6"/>
+            <TextBlock Grid.Row="1" Foreground="#607D8B" Text="{Binding Vm.StatusText}" TextWrapping="Wrap" Margin="0 0 0 12"/>
+            <TextBlock Grid.Row="2" Text="Capabilities" Foreground="#37474F" FontWeight="SemiBold" Margin="0 0 0 4"/>
+            <Border Grid.Row="3" Background="#E3F2FD" CornerRadius="6" Padding="8 6" Margin="0 0 0 12">
+                <TextBlock Foreground="#1565C0" FontWeight="SemiBold" Text="{Binding Vm.CapabilitiesText}"/>
+            </Border>
+            <TextBlock Grid.Row="4" Text="Runner trace:" Foreground="#37474F" FontWeight="SemiBold" Margin="0 0 0 4"/>
+            <Border Grid.Row="5" Style="{DynamicResource ModernSectionBorder}" Padding="0 0 12 0">
+                <DataGrid x:Name="RunnerTraceGrid"
+                          ItemsSource="{Binding Vm.TraceLines}"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          CanUserReorderColumns="False"
+                          CanUserResizeColumns="False"
+                          IsReadOnly="True"
+                          SelectionMode="Extended"
+                          SelectionUnit="FullRow"
+                          ClipboardCopyMode="ExcludeHeader"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          GridLinesVisibility="Horizontal"
+                          HorizontalGridLinesBrush="{DynamicResource ThemeBorderBrush}"
+                          Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                          FontSize="11"
+                          ScrollViewer.CanContentScroll="True"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Time"
+                                           Width="90"
+                                           Binding="{Binding Converter={StaticResource RunnerLogTimestampConverter}}"
+                                           ElementStyle="{StaticResource RunnerLogTimestampStyle}"/>
+                        <DataGridTextColumn Header="Message"
+                                           Width="*"
+                                           Binding="{Binding Converter={StaticResource RunnerLogMessageConverter}}"
+                                           ElementStyle="{StaticResource RunnerLogMessageStyle}"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+            <TextBlock Grid.Row="6" Text="Recent runner trace (all requests):" Foreground="#37474F" FontWeight="SemiBold" Margin="0 12 0 4"/>
+            <Border Grid.Row="7" Style="{DynamicResource ModernSectionBorder}" Padding="0 0 12 0">
+                <DataGrid x:Name="GlobalRunnerTraceGrid"
+                          ItemsSource="{Binding GlobalRunnerTrace}"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          CanUserReorderColumns="False"
+                          CanUserResizeColumns="False"
+                          IsReadOnly="True"
+                          SelectionMode="Extended"
+                          SelectionUnit="FullRow"
+                          ClipboardCopyMode="ExcludeHeader"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          GridLinesVisibility="Horizontal"
+                          HorizontalGridLinesBrush="{DynamicResource ThemeBorderBrush}"
+                          Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                          FontSize="11"
+                          ScrollViewer.CanContentScroll="True"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Time"
+                                           Width="90"
+                                           Binding="{Binding Converter={StaticResource RunnerLogTimestampConverter}}"
+                                           ElementStyle="{StaticResource RunnerLogTimestampStyle}"/>
+                        <DataGridTextColumn Header="Message"
+                                           Width="*"
+                                           Binding="{Binding Converter={StaticResource RunnerLogMessageConverter}}"
+                                           ElementStyle="{StaticResource RunnerLogMessageStyle}"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

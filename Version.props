@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Update this value to version all projects (major.minor.patch[-prerelease]). -->
+    <ProductVersion>1.0.0</ProductVersion>
+  </PropertyGroup>
+</Project>

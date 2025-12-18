@@ -1,0 +1,540 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json.Nodes;
+using DataverseDebugger.Runner.Conversion.Utils;
+using DataverseDebugger.Runner.Conversion.Model;
+using Microsoft.Crm.Sdk.Messages;
+using Microsoft.OData.Edm;
+using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Xrm.Sdk.Query;
+
+namespace DataverseDebugger.Runner.Conversion.Converters
+{
+    /// <summary>
+    /// Converts SDK OrganizationResponse objects to Web API responses.
+    /// </summary>
+    /// <remarks>
+    /// This class transforms the results of SDK operations back into HTTP responses
+    /// that match the Web API format, including proper JSON serialization and OData annotations.
+    /// </remarks>
+    public class ResponseConverter
+    {
+        internal DataverseContext Context { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ResponseConverter"/> class.
+        /// </summary>
+        /// <param name="context">The Dataverse context containing metadata and services.</param>
+        /// <exception cref="ArgumentNullException">Thrown when context is null.</exception>
+        public ResponseConverter(DataverseContext context)
+        {
+            this.Context = context ?? throw new ArgumentNullException(nameof(context));
+        }
+
+        /// <summary>
+        /// Creates an error response from an error code and message.
+        /// </summary>
+        /// <param name="errorCode">The error code (hex formatted in response).</param>
+        /// <param name="errorText">The error message.</param>
+        /// <param name="errorDetails">Additional error details.</param>
+        /// <returns>A WebApiResponse with HTTP 400 status and OData error format.</returns>
+        private static WebApiResponse ConvertError(int errorCode, string errorText, string errorDetails)
+        {
+            byte[] body = Encoding.UTF8.GetBytes(
+            $@"{{
+                ""error"":
+                    {{
+                    ""code"":""0x{errorCode:X}"",
+                    ""message"":""{errorText}""
+                    //""@Microsoft.PowerApps.CDS.ErrorDetails.HttpStatusCode"":""400"",
+                    //""@Microsoft.PowerApps.CDS.InnerError"":""{errorText}"",
+                    //""@Microsoft.PowerApps.CDS.TraceText"":""{errorDetails}""
+                    }}
+                }}");
+
+            return new WebApiResponse()
+            {
+                StatusCode = 400,
+                Body = body,
+                Headers = new NameValueCollection()
+                {
+                    { "OData-Version", "4.0" },
+                    { "Content-Type", "application/json; odata.metadata = minimal" },
+                    { "Content-Length", body.Length.ToString() }
+                }
+            };
+        }
+
+        /// <summary>
+        /// Converts an exception to a Web API error response.
+        /// </summary>
+        /// <param name="ex">The exception to convert.</param>
+        /// <returns>A WebApiResponse with HTTP 400 status and the exception message.</returns>
+        public WebApiResponse Convert(Exception ex)
+        {
+            var errorText = JavaScriptEncoder.UnsafeRelaxedJsonEscaping.Encode(ex.Message);
+            var errorDetails = JavaScriptEncoder.UnsafeRelaxedJsonEscaping.Encode(ex.ToString());
+            return ConvertError(-2147220891, errorText, errorDetails); //ISVAborted
+        }
+
+
+        /// <summary>
+        /// Converts an OrganizationResponse to a Web API response.
+        /// </summary>
+        /// <param name="conversionResult">The original conversion result with source request info.</param>
+        /// <param name="response">The SDK response to convert.</param>
+        /// <returns>A WebApiResponse with the appropriate HTTP status, headers, and body.</returns>
+        /// <remarks>
+        /// Routes to specialized conversion methods based on response type:
+        /// CreateResponse, UpdateResponse, RetrieveResponse, DeleteResponse, ExecuteMultipleResponse,
+        /// or Custom API responses.
+        /// </remarks>
+        public WebApiResponse Convert(RequestConversionResult conversionResult, OrganizationResponse response)
+        {
+            switch (response)
+            {
+                case CreateResponse createResponse:
+                    return ConvertCreateResponse((CreateRequest)conversionResult.ConvertedRequest, createResponse, conversionResult);
+                case UpdateResponse updateResponse:
+                    return ConvertUpdateResponse((UpdateRequest)conversionResult.ConvertedRequest);
+                case RetrieveResponse retrieveResponse:
+                    return ConvertRetrieveResponse(conversionResult);
+                case DeleteResponse _:
+                    return ConvertDeleteResponse();
+                case ExecuteMultipleResponse executeMultipleResponse:
+                    return ConvertExecuteMultipleResponse(conversionResult, executeMultipleResponse);
+                default:
+                    // OrganizationResponse without specialized type are assumed to be CustomApi
+                    return ConvertCustomApiResponse(response);
+
+            }
+        }
+
+        /// <summary>
+        /// Converts an ExecuteMultipleResponse to a multipart batch response.
+        /// </summary>
+        private WebApiResponse ConvertExecuteMultipleResponse(RequestConversionResult conversionResult, ExecuteMultipleResponse executeMultipleResponse)
+        {
+            var innerConversionResults = conversionResult.CustomData["InnerConversions"] as List<RequestConversionResult>;
+            StringBuilder bodyBuilder = new StringBuilder();
+            if (innerConversionResults.Count != executeMultipleResponse.Responses.Count)
+                throw new NotSupportedException($"Expected same number of responses: {innerConversionResults.Count} != {executeMultipleResponse.Responses.Count}");
+            string delimiter = "batchresponse_dvbrowser" + Guid.NewGuid();
+            for (int i = 0; i < innerConversionResults.Count; i++)
+            {
+                var requestConversionResult = innerConversionResults[i];
+                var responseItem = executeMultipleResponse.Responses[i];
+                if (responseItem.Fault == null && responseItem.Response == null)
+                {
+                    continue;
+                }
+                WebApiResponse convertedResponse;
+                if (responseItem.Fault != null)
+                {
+                    convertedResponse = ConvertError(responseItem.Fault.ErrorCode, responseItem.Fault.Message, responseItem.Fault.ToString());
+                }
+                else if (responseItem.Response is RetrieveResponse)
+                {
+                    // For retrieve responses in batch, use HttpGet to get proper null values and annotations
+                    convertedResponse = ConvertRetrieveResponse(requestConversionResult);
+                }
+                else
+                {
+                    convertedResponse = Convert(requestConversionResult, responseItem.Response);
+                }
+                bodyBuilder.Append("--").AppendLine(delimiter);
+
+                if (!(responseItem.Response is ExecuteMultipleResponse))
+                {
+
+                    bodyBuilder.AppendLine("Content-Type: application/http");
+                    bodyBuilder.AppendLine("Content-Transfer-Encoding: binary");
+                    bodyBuilder.AppendLine("Content-ID: " + (i + 1));
+                    bodyBuilder.AppendLine();
+                    bodyBuilder.Append("HTTP/1.1 ").Append(convertedResponse.StatusCode).Append(" N/A").AppendLine();
+                    foreach (string header in convertedResponse.Headers.Keys)
+                    {
+                        bodyBuilder.Append(header).Append(": ").Append(convertedResponse.Headers[header]).AppendLine();
+                    }
+                }
+                else
+                {
+                    bodyBuilder.Append("Content-Type").Append(": ").Append(convertedResponse.Headers["Content-Type"]).AppendLine();
+                }
+
+                bodyBuilder.AppendLine();
+                if (convertedResponse.Body != null)
+                {
+                    bodyBuilder.AppendLine(Encoding.UTF8.GetString(convertedResponse.Body));
+                }
+                bodyBuilder.AppendLine();
+            }
+            bodyBuilder.Append("--").Append(delimiter).Append("--");
+
+            return new WebApiResponse()
+            {
+                Body = Encoding.UTF8.GetBytes(bodyBuilder.ToString()),
+                StatusCode = 200,
+                Headers = new NameValueCollection() { { "OData-Version", "4.0" }, { "Content-Type", $"multipart/mixed; boundary={delimiter}" } }
+            };
+        }
+
+        /// <summary>
+        /// Converts a Custom API response to JSON format.
+        /// </summary>
+        private WebApiResponse ConvertCustomApiResponse(OrganizationResponse organizationResponse)
+        {
+
+            if (organizationResponse.Results.Count == 0)
+            {
+                return new WebApiResponse()
+                {
+                    Body = null,
+                    Headers = new NameValueCollection
+                {
+                    { "OData-Version", "4.0" }
+                },
+                    StatusCode = 204
+                };
+            }
+
+            var body = new JsonObject
+            {
+                ["@odata.context"] = $"https://{this.Context.Host}/api/data/v9.2/$metadata#Microsoft.Dynamics.CRM.{organizationResponse.ResponseName}Response"
+            };
+            var operation = this.Context.Model.FindDeclaredOperations("Microsoft.Dynamics.CRM." + organizationResponse.ResponseName).FirstOrDefault();
+            var returnTypeDefinition = operation?.ReturnType?.Definition as IEdmStructuredType;
+
+            bool bodyIsEmpty = true;
+            foreach (var property in organizationResponse.Results)
+            {
+                var parameter = returnTypeDefinition?.DeclaredProperties?.FirstOrDefault(p => p.Name == property.Key);
+                if (parameter != null || returnTypeDefinition?.FullTypeName() == "Microsoft.Dynamics.CRM.crmbaseentity")
+                {
+                    AddValueToJsonObject(body, property, null, parameter);
+                    bodyIsEmpty = false;
+                }
+            }
+            if (bodyIsEmpty)
+            {
+                return new WebApiResponse()
+                {
+
+                    Headers = new NameValueCollection
+                    {
+                        { "OData-Version", "4.0" }
+                    },
+                    StatusCode = 204
+                };
+            }
+            string jsonBody = body.ToJsonString();
+            return new WebApiResponse()
+            {
+                Body = Encoding.UTF8.GetBytes(jsonBody),
+                Headers = new NameValueCollection
+                {
+                    { "OData-Version", "4.0" }
+                },
+                StatusCode = 200
+            };
+        }
+
+        /// <summary>
+        /// Adds a value to a JSON object, converting from SDK types to JSON-compatible types.
+        /// </summary>
+        /// <param name="body">The JSON object to add to.</param>
+        /// <param name="property">The property key-value pair.</param>
+        /// <param name="currentEntityLogicalName">The current entity context; null for top-level properties.</param>
+        /// <param name="parameter">The EDM property definition; null if unknown.</param>
+        private void AddValueToJsonObject(JsonObject body, KeyValuePair<string, object> property, string currentEntityLogicalName, IEdmProperty parameter)
+        {
+            switch (property.Value)
+            {
+                case null:
+                    body[property.Key] = null;
+                    break;
+                case string strValue:
+                    body[property.Key] = strValue;
+                    break;
+                case int intValue:
+                    body[property.Key] = intValue;
+                    break;
+                case byte byteValue:
+                    body[property.Key] = byteValue;
+                    break;
+                case Guid guidValue:
+                    body[property.Key] = guidValue;
+                    break;
+                case float floatValue:
+                    body[property.Key] = floatValue;
+                    break;
+                case double doubleValue:
+                    body[property.Key] = doubleValue;
+                    break;
+                case decimal decimalValue:
+                    body[property.Key] = decimalValue;
+                    break;
+                case DateTime dateTimeValue:
+                    body[property.Key] = dateTimeValue;
+                    break;
+                case bool boolValue:
+                    body[property.Key] = boolValue;
+                    break;
+                case OptionSetValue optionSetValue:
+                    body[property.Key] = optionSetValue.Value;
+                    break;
+                case Money moneyValue:
+                    body[property.Key] = moneyValue.Value;
+                    break;
+                case EntityReference entityReferenceValue:
+                    {
+                        if (currentEntityLogicalName == null)
+                        {
+                            // Here it's directly a property response
+                            //The format is not the same if it's the only one property or if there are other properties
+                            string typeName = "Microsoft.Dynamics.CRM." + entityReferenceValue.LogicalName;
+                            var definition = this.Context.Model.FindType(typeName) as IEdmEntityType;
+                            if (parameter == null)
+                            {
+                                body["@odata.type"] = "#" + typeName;
+                                body[property.Key] = entityReferenceValue.Id;
+                            }
+                            else
+                            {
+                                var keyProperty = definition.DeclaredKey.FirstOrDefault();
+                                var value = new JsonObject();
+                                if (keyProperty != null)
+                                {
+                                    value[keyProperty.Name] = entityReferenceValue.Id;
+                                }
+                                body[property.Key] = value;
+                            }
+                        }
+                        else
+                        {
+                            // Here it's a property of an entity record included in a property response
+                            var entityTypeDefinition = (IEdmStructuredType)this.Context.Model.FindDeclaredType("Microsoft.Dynamics.CRM." + currentEntityLogicalName);
+                            var declaredProperty = entityTypeDefinition?.DeclaredProperties?.FirstOrDefault(p => p.Name == property.Key);
+                            if (declaredProperty?.PropertyKind == EdmPropertyKind.Navigation)
+                            {
+                                body["_" + property.Key + "_value"] = entityReferenceValue.Id;
+                            }
+                            else
+                            {
+                                body[property.Key] = entityReferenceValue.Id;
+                            }
+
+                        }
+                    }
+                    break;
+                case Entity record:
+                    {
+                        var parameterDefinition = parameter.Type.Definition;
+                        JsonObject recordJson = ConvertEntityToJson(record, parameterDefinition.FullTypeName() == "Microsoft.Dynamics.CRM.crmbaseentity");
+                        body[property.Key] = recordJson;
+
+                    }
+                    break;
+                case EntityCollection collection:
+                    {
+                        var arrayJson = new JsonArray();
+                        body[property.Key] = arrayJson;
+                        foreach (var record in collection.Entities)
+                        {
+                            JsonObject recordJson = ConvertEntityToJson(record, true);
+                            arrayJson.Add(recordJson);
+                        }
+                    }
+                    break;
+                case Guid[] ids:
+                    {
+                        var arrayJson = new JsonArray();
+                        body[property.Key] = arrayJson;
+                        foreach (var id in ids)
+                        {
+                            arrayJson.Add(id);
+                        }
+                    }
+                    break;
+                case BooleanManagedProperty booleanManagedProperty:
+                    body[property.Key] = booleanManagedProperty.Value;
+                    break;
+                case AccessRights accessRights:
+                    // AccessRights is a Flags enum - serialize as string
+                    body[property.Key] = accessRights.ToString();
+                    break;
+                case AliasedValue aliasedValue:
+                    // AliasedValue is used in aggregate queries and linked entities
+                    // Recursively convert the inner value
+                    AddValueToJsonObject(body, new KeyValuePair<string, object>(property.Key, aliasedValue.Value), currentEntityLogicalName, parameter);
+                    break;
+                case Enum enumValue:
+                    // Handle other enums generically
+                    body[property.Key] = enumValue.ToString();
+                    break;
+                default:
+                    throw new NotImplementedException($"Message has been executed but response cannot be generated. Parameter:{property.Key}={property.Value?.GetType().FullName}");
+            }
+        }
+
+        /// <summary>
+        /// Converts an Entity to a JSON object for serialization.
+        /// </summary>
+        /// <param name="record">The Entity to convert.</param>
+        /// <param name="addType">If true, adds @odata.type annotation.</param>
+        /// <returns>A JsonObject representing the entity.</returns>
+        private JsonObject ConvertEntityToJson(Entity record, bool addType)
+        {
+            var recordJson = new JsonObject
+            {
+                ["@odata.etag"] = "DvbError: NotImplemented"
+            };
+            if (addType)
+            {
+                recordJson["@odata.type"] = "#Microsoft.Dynamics.CRM." + record.LogicalName;
+            }
+
+            string typeName = "Microsoft.Dynamics.CRM." + record.LogicalName;
+            var definition = this.Context.Model.FindType(typeName) as IEdmEntityType;
+            var key = definition.DeclaredKey.FirstOrDefault()?.Name;
+            if (key != null && !record.Contains(key))
+            {
+                record[key] = record.Id;
+            }
+
+            foreach (var kvp in record.Attributes)
+            {
+                AddValueToJsonObject(recordJson, kvp, record.LogicalName, null);
+            }
+
+            return recordJson;
+        }
+
+        /// <summary>
+        /// Converts a DeleteResponse to HTTP 204 No Content.
+        /// </summary>
+        private WebApiResponse ConvertDeleteResponse()
+        {
+            return new WebApiResponse()
+            {
+                Body = new byte[0],
+                Headers = new NameValueCollection
+                {
+                    { "OData-Version", "4.0" }
+                },
+                StatusCode = 204
+            };
+        }
+
+        /// <summary>
+        /// Converts an UpdateResponse to HTTP 204 with OData-EntityId header.
+        /// </summary>
+        private WebApiResponse ConvertUpdateResponse(UpdateRequest updateRequest)
+        {
+            string setName = this.Context.MetadataCache.GetEntityFromLogicalName(updateRequest.Target.LogicalName).EntitySetName;
+            var id = $"{this.Context.WebApiBaseUrl}{setName}({updateRequest.Target.Id})";
+            return new WebApiResponse()
+            {
+                Body = new byte[0],
+                Headers = new NameValueCollection
+                {
+                    { "OData-Version", "4.0" },
+                    { "OData-EntityId", id }
+                },
+                StatusCode = 204
+            };
+        }
+
+        /// <summary>
+        /// Converts a CreateResponse to HTTP 201 with the created entity data.
+        /// </summary>
+        /// <remarks>
+        /// Proxies to Web API to get proper response with OData annotations,
+        /// bypassing plugins for performance.
+        /// </remarks>
+        private WebApiResponse ConvertCreateResponse(CreateRequest createRequest, CreateResponse createResponse, RequestConversionResult conversionResult)
+        {
+            string setName = this.Context.MetadataCache.GetEntityFromLogicalName(createRequest.Target.LogicalName).EntitySetName;
+            var id = $"{this.Context.WebApiBaseUrl}{setName}({createResponse.id})";
+
+            // Proxy to Web API to get proper response with OData annotations (bypassing plugins for performance)
+            // Note: Only returns representation if explicitly requested via Prefer: return=representation header
+            var retrieveResult = HttpGet(id, true);
+            return new WebApiResponse()
+            {
+                Body = retrieveResult.Content.ReadAsByteArrayAsync().Result,
+                Headers = new NameValueCollection
+                {
+                    { "OData-Version", "4.0" },
+                    { "OData-EntityId", id }
+                },
+                StatusCode = 201
+            };
+        }
+
+        /// <summary>
+        /// Converts a RetrieveResponse by proxying to Web API for complete data.
+        /// </summary>
+        /// <remarks>
+        /// Proxies to Web API to ensure complete response with null attributes and OData annotations.
+        /// This is required for proper form rendering (lookups, formatted values, etc.).
+        /// </remarks>
+        private WebApiResponse ConvertRetrieveResponse(RequestConversionResult conversionResult)
+        {
+            // Proxy to Web API to ensure complete response with null attributes and OData annotations
+            // This is required for proper form rendering (lookups, formatted values, etc.)
+            string url = $"https://{this.Context.Host}{conversionResult.SrcRequest.LocalPathWithQuery}";
+            
+            // Pass important headers from the original request (especially Prefer header for annotations)
+            var preferHeader = conversionResult.SrcRequest.Headers["Prefer"];
+            
+            HttpResponseMessage retrieveResult = HttpGet(url, false, preferHeader);
+            var bodyBytes = retrieveResult.Content.ReadAsByteArrayAsync().Result;
+            NameValueCollection headers = new NameValueCollection();
+            foreach (var header in retrieveResult.Headers)
+            {
+                headers.Add(header.Key, String.Concat(header.Value, ","));
+            }
+            // Also copy content headers like Content-Type
+            foreach (var header in retrieveResult.Content.Headers)
+            {
+                headers.Add(header.Key, String.Concat(header.Value, ","));
+            }
+            return new WebApiResponse()
+            {
+                Body = bodyBytes,
+                Headers = headers,
+                StatusCode = 200
+            };
+        }
+
+        /// <summary>
+        /// Sends an HTTP GET request to Web API for data retrieval.
+        /// </summary>
+        /// <param name="url">The URL to retrieve.</param>
+        /// <param name="bypassPlugins">If true, adds MSCRM.BypassCustomPluginExecution header.</param>
+        /// <param name="preferHeader">Optional Prefer header value to forward.</param>
+        /// <returns>The HTTP response message.</returns>
+        private HttpResponseMessage HttpGet(string url, bool bypassPlugins, string preferHeader = null)
+        {
+            HttpRequestMessage retrieveMessage = new HttpRequestMessage(HttpMethod.Get, url);
+            this.Context.AddAuthorizationHeaders(retrieveMessage);
+            if (bypassPlugins)
+            {
+                retrieveMessage.Headers.Add("MSCRM.BypassCustomPluginExecution", "true");
+            }
+            if (!string.IsNullOrEmpty(preferHeader))
+            {
+                retrieveMessage.Headers.Add("Prefer", preferHeader);
+            }
+            var retrieveResult = this.Context.HttpClient.SendAsync(retrieveMessage).Result;
+            return retrieveResult;
+        }
+    }
+}

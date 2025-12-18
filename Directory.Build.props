@@ -1,0 +1,14 @@
+<Project>
+  <Import Project="Version.props" Condition="Exists('Version.props')" />
+
+  <PropertyGroup Condition="'$(ProductVersion)' != ''">
+    <Version>$(ProductVersion)</Version>
+    <AssemblyVersion>$(ProductVersion)</AssemblyVersion>
+    <FileVersion>$(ProductVersion)</FileVersion>
+    <InformationalVersion>$(ProductVersion)$(InformationalVersionSuffix)</InformationalVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <InformationalVersionSuffix>-debug</InformationalVersionSuffix>
+  </PropertyGroup>
+</Project>

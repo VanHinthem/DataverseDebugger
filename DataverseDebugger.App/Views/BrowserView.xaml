@@ -1,0 +1,120 @@
+<UserControl x:Class="DataverseDebugger.App.Views.BrowserView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+             xmlns:conv="clr-namespace:DataverseDebugger.App.Converters"
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="900">
+    <UserControl.Resources>
+        <conv:BooleanToOnOffConverter x:Key="BooleanToOnOffConverter"/>
+    </UserControl.Resources>
+    <Grid Background="{DynamicResource ThemeBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="8 8 8 8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Navigation buttons -->
+                <Button x:Name="BackButton" Grid.Column="0" Style="{DynamicResource ModernToolbarButton}" Click="OnBackClick" IsEnabled="False" ToolTip="Go back">
+                    <TextBlock Text="◀ Back" />
+                </Button>
+                <Button x:Name="ForwardButton" Grid.Column="1" Style="{DynamicResource ModernToolbarButton}" Margin="4 0 0 0" Click="OnForwardClick" IsEnabled="False" ToolTip="Go forward">
+                    <TextBlock Text="Forward ▶"/>
+                </Button>
+                <Button x:Name="RefreshButton" Grid.Column="2" Style="{DynamicResource ModernToolbarButton}" Margin="4 0 0 0" Click="OnRefreshClick" IsEnabled="False" ToolTip="Refresh page">
+                    <TextBlock Text="⟳ Refresh"/>
+                </Button>
+                <Button Grid.Column="3" Style="{DynamicResource ModernToolbarButton}" Margin="8 0 0 0" Click="OnNavigateCustom" ToolTip="Navigate to URL">
+                    <TextBlock Text="→ Go"/>
+                </Button>
+                
+                <!-- URL bar -->
+                <TextBox x:Name="NavigateUrl" Grid.Column="4" 
+                         Style="{DynamicResource ModernTextBox}"
+                         Text="https://hsonnd365afs34devsandbox10.crm4.dynamics.com/" 
+                         Margin="8 0 0 0" 
+                         TextChanged="OnSettingsChanged" 
+                         KeyDown="OnUrlKeyDown" 
+                         HorizontalAlignment="Stretch"
+                         ToolTip="Enter URL and press Enter or click Go"/>
+                
+                <!-- DevTools button -->
+                <Button x:Name="DevToolsButton" Grid.Column="5" Style="{DynamicResource ModernToolbarButton}" Margin="8 0 0 0" Click="OnDevToolsClick" IsEnabled="False" ToolTip="Open browser developer tools">
+                    <TextBlock Text="🔧 DevTools"/>
+                </Button>
+                
+                <!-- Tools dropdown button -->
+                <Menu Grid.Column="6" Background="Transparent" Margin="4 0 0 0" VerticalAlignment="Center">
+                    <MenuItem x:Name="ToolsMenu" Header="🛠 Tools" Style="{DynamicResource ModernMenuButton}">
+                        <MenuItem Header="📋 Show Logical Names" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnShowLogicalNamesClick" ToolTip="Shows logical names for all fields on the form"/>
+                        <MenuItem Header="🔄 Clear Logical Names" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnClearLogicalNamesClick" ToolTip="Removes logical name labels from the form"/>
+                        <Separator/>
+                        <MenuItem Header="⚡ God Mode" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnGodModeClick" ToolTip="Unlocks all fields, shows hidden elements, removes requirements"/>
+                        <Separator/>
+                        <MenuItem Header="📝 Show Changed Fields" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnShowChangedFieldsClick" ToolTip="Highlights fields with unsaved changes"/>
+                        <MenuItem Header="📊 Show Option Set Values" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnShowOptionSetValuesClick" ToolTip="Shows numeric values for option set fields"/>
+                        <MenuItem Header="ℹ️ Form Info" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnFormInfoClick" ToolTip="Shows form metadata (ID, entity, form type)"/>
+                        <Separator/>
+                        <MenuItem Header="📋 Copy Record ID" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnCopyRecordIdClick" ToolTip="Copies the current record GUID to clipboard"/>
+                        <MenuItem Header="🔗 Copy Record URL" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnCopyRecordUrlClick" ToolTip="Copies the direct URL to the current record"/>
+                        <Separator/>
+                        <MenuItem Header="🔄 Refresh (No Save)" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnRefreshWithoutSaveClick" ToolTip="Refreshes the form without prompting to save"/>
+                        <MenuItem Header="🌐 Open Web API" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnOpenWebApiClick" ToolTip="Opens the Web API endpoint for the current record"/>
+                    </MenuItem>
+                </Menu>
+                
+                <!-- Impersonation button -->
+                <Button x:Name="ImpersonationButton" Grid.Column="7" Style="{DynamicResource ImpersonationButton}" Margin="4 0 0 0" Click="OnImpersonationClick"
+                        ToolTip="Select a user to impersonate for Web API requests (MSCRMCallerID header)">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="👤" Margin="0 0 6 0"/>
+                        <TextBlock x:Name="ImpersonationText" Text="Impersonate"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12 0 0 0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
+                    <TextBlock Text="Capture" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="CaptureToggle" Style="{DynamicResource ModernToggleSwitch}" Checked="OnCaptureToggleChanged" Unchecked="OnCaptureToggleChanged"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Auto Proxy" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="AutoProxyToggle" Style="{DynamicResource ModernToggleSwitch}" Checked="OnAutoProxyToggleChanged" Unchecked="OnAutoProxyToggleChanged"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12 0 0 0">
+                    <TextBlock Text="Debug" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="DebugToggle" Style="{DynamicResource ModernToggleSwitch}" Checked="OnDebugToggleChanged" Unchecked="OnDebugToggleChanged"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0 0 0 0"/>
+
+        <Border Grid.Row="2" Background="{DynamicResource ThemeSurfaceBrush}" CornerRadius="4" Padding="0" 
+                BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" Margin="8 0 8 8">
+            <Grid x:Name="WebViewContainer"/>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,161 @@
+<UserControl x:Class="DataverseDebugger.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:services="clr-namespace:DataverseDebugger.App.Services"
+             xmlns:protocol="clr-namespace:DataverseDebugger.Protocol;assembly=DataverseDebugger.Protocol"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             xmlns:conv="clr-namespace:DataverseDebugger.App.Converters"
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="500">
+    <UserControl.Resources>
+        <ObjectDataProvider x:Key="RunnerLogLevels" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="protocol:RunnerLogLevel"/>
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
+        <conv:LogLinePartConverter x:Key="LogTimestampConverter" Part="Timestamp"/>
+        <conv:LogLinePartConverter x:Key="LogMessageConverter" Part="Message"/>
+        <Style x:Key="LogGridTimestampStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="Padding" Value="6 2"/>
+        </Style>
+        <Style x:Key="LogGridMessageStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="Padding" Value="6 2"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+    </UserControl.Resources>
+    <Border Background="{DynamicResource ThemeSurfaceBrush}" CornerRadius="8" Padding="16" 
+            BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <!-- Appearance Settings -->
+                <TextBlock Text="Appearance" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
+                <Border Style="{DynamicResource ModernSectionBorder}" Margin="0 0 0 16">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Dark mode" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="0 0 12 0" FontSize="12"/>
+                            <ToggleButton Style="{DynamicResource ModernToggleSwitch}" 
+                                          IsChecked="{Binding Appearance.IsDarkMode, Mode=TwoWay}"
+                                          IsEnabled="False"/>
+                            <TextBlock Text="Coming soon - dark theme needs refinement" 
+                                       Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="11" FontStyle="Italic" VerticalAlignment="Center" Margin="12 0 0 0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Browser Settings -->
+                <TextBlock Text="Browser settings" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
+                <Border Style="{DynamicResource ModernSectionBorder}" Margin="0 0 0 16">
+                    <StackPanel>
+                        <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Disable caching" IsChecked="{Binding Browser.DisableCaching}"/>
+                        <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Bypass service worker network" IsChecked="{Binding Browser.BypassServiceWorker}"/>
+                        <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Open DevTools on environment activation" IsChecked="{Binding Browser.OpenDevToolsOnActivate}"/>
+                        <TextBlock Text="Applies to the WebView2 browser for the active environment."
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="11" Margin="0 6 0 0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Runner Settings -->
+                <TextBlock Text="Runner settings" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
+                <Border Style="{DynamicResource ModernSectionBorder}" Margin="0 0 0 16">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0 0 0 6" VerticalAlignment="Center">
+                            <TextBlock Text="Write mode" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold" Width="110" VerticalAlignment="Center"/>
+                            <ComboBox Width="240" Style="{DynamicResource ModernComboBox}" 
+                                      SelectedValuePath="Tag" SelectedValue="{Binding Runner.WriteMode, Mode=TwoWay}"
+                                      HorizontalAlignment="Left">
+                                <ComboBoxItem Content="Fake writes (overlay)" Tag="FakeWrites"/>
+                                <ComboBoxItem Content="Live writes (org)" Tag="LiveWrites"/>
+                            </ComboBox>
+                        </StackPanel>
+                        <TextBlock Text="Live writes will disable async steps for the loaded plugin assemblies."
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="11"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Runner Logging -->
+                <TextBlock Text="Runner logging" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
+                <Border Style="{DynamicResource ModernSectionBorder}" Margin="0 0 0 16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Level" 
+                                   Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold" Margin="0 0 10 8"/>
+                        <ComboBox Grid.Row="0" Grid.Column="1" Style="{DynamicResource ModernComboBox}"
+                                  ItemsSource="{Binding Source={StaticResource RunnerLogLevels}}"
+                                  SelectedItem="{Binding RunnerLog.Level, Mode=TwoWay}"
+                                  Width="200" Margin="0 0 0 8" HorizontalAlignment="Left"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Categories" 
+                                   Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold" Margin="0 0 10 6"/>
+                        <UniformGrid Grid.Row="1" Grid.Column="1" Columns="2" Margin="0 0 0 6">
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Runner lifecycle" IsChecked="{Binding RunnerLog.RunnerLifecycle}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="IPC" IsChecked="{Binding RunnerLog.Ipc}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Workspace init" IsChecked="{Binding RunnerLog.WorkspaceInit}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Assembly load" IsChecked="{Binding RunnerLog.AssemblyLoad}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Plugin cache" IsChecked="{Binding RunnerLog.PluginCache}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Metadata" IsChecked="{Binding RunnerLog.Metadata}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Emulator" IsChecked="{Binding RunnerLog.Emulator}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Debugger" IsChecked="{Binding RunnerLog.Debugger}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Performance" IsChecked="{Binding RunnerLog.Perf}"/>
+                            <CheckBox Style="{DynamicResource ModernCheckBox}" Content="Errors" IsChecked="{Binding RunnerLog.Errors}"/>
+                        </UniformGrid>
+                        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="Logs are emitted by the runner process (request handling excluded)."
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="11"/>
+                    </Grid>
+                </Border>
+
+                <!-- Diagnostics / Logs -->
+                <TextBlock Text="Diagnostics / Logs" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
+                <Border Style="{DynamicResource ModernSectionBorder}" Padding="0">
+                    <DataGrid ItemsSource="{Binding Source={x:Static services:LogService.Entries}}"
+                              AutoGenerateColumns="False"
+                              HeadersVisibility="Column"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              CanUserReorderColumns="False"
+                              CanUserResizeColumns="False"
+                              IsReadOnly="True"
+                              SelectionMode="Extended"
+                              SelectionUnit="FullRow"
+                              ClipboardCopyMode="ExcludeHeader"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              GridLinesVisibility="Horizontal"
+                              HorizontalGridLinesBrush="{DynamicResource ThemeBorderBrush}"
+                              Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                              MinHeight="140"
+                              MaxHeight="280"
+                              FontSize="11"
+                              ScrollViewer.CanContentScroll="False"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Time"
+                                               Width="90"
+                                               Binding="{Binding Converter={StaticResource LogTimestampConverter}}"
+                                               ElementStyle="{StaticResource LogGridTimestampStyle}"/>
+                            <DataGridTextColumn Header="Message"
+                                               Width="*"
+                                               Binding="{Binding Converter={StaticResource LogMessageConverter}}"
+                                               ElementStyle="{StaticResource LogGridMessageStyle}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

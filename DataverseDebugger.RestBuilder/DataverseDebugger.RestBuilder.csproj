@@ -1,0 +1,123 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <ImplicitUsings>false</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <GenerateRuntimeConfigFile>false</GenerateRuntimeConfigFile>
+    <NoWarn>$(NoWarn);CS2008</NoWarn>
+    <RestBuilderPackageName>DataverseRESTBuilder.bundle.zip</RestBuilderPackageName>
+    <RestBuilderJsDir>$(MSBuildProjectDirectory)\js</RestBuilderJsDir>
+    <RestBuilderCustomJs>$(RestBuilderJsDir)\drb_custom.js</RestBuilderCustomJs>
+    <RestBuilderOutputDir>$(MSBuildProjectDirectory)\bin\$(Configuration)\</RestBuilderOutputDir>
+    <RestBuilderPackagePath>$(RestBuilderOutputDir)$(RestBuilderPackageName)</RestBuilderPackagePath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SolutionDir)' == ''">
+    <SolutionDir>$(MSBuildProjectDirectory)\..\</SolutionDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RestBuilderExtensionsDir>$([System.IO.Path]::GetFullPath('$(SolutionDir)DataverseDebugger.App\extensions'))</RestBuilderExtensionsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <DrbSourceJs Include="drb.namespaces.js" />
+    <DrbSourceJs Include="drb.dom.js" />
+    <DrbSourceJs Include="drb.utilities.js" />
+    <DrbSourceJs Include="drb.xrm.getdemodata.js" />
+    <DrbSourceJs Include="drb.models.js" />
+    <DrbSourceJs Include="drb.ui.js" />
+    <DrbSourceJs Include="drb.xrm.js" />
+    <DrbSourceJs Include="drb.common.xrm.js" />
+    <DrbSourceJs Include="drb.common.map.js" />
+    <DrbSourceJs Include="drb.common.js" />
+    <DrbSourceJs Include="drb.logic.js" />
+    <DrbSourceJs Include="drb.logic.bindings.js" />
+    <DrbSourceJs Include="drb.generatecode.js" />
+    <DrbSourceJs Include="drb.generatepostman.js" />
+    <DrbSourceJs Include="drb.customui.js" />
+    <DrbSourceJs Include="drb.logic.retrievesingle.js" />
+    <DrbSourceJs Include="drb.logic.column.js" />
+    <DrbSourceJs Include="drb.logic.filter.js" />
+    <DrbSourceJs Include="drb.logic.order.js" />
+    <DrbSourceJs Include="drb.logic.retrievemultiple.js" />
+    <DrbSourceJs Include="drb.logic.set.js" />
+    <DrbSourceJs Include="drb.logic.create.js" />
+    <DrbSourceJs Include="drb.logic.update.js" />
+    <DrbSourceJs Include="drb.logic.delete.js" />
+    <DrbSourceJs Include="drb.logic.association.js" />
+    <DrbSourceJs Include="drb.logic.retrievenextlink.js" />
+    <DrbSourceJs Include="drb.logic.predefinedquery.js" />
+    <DrbSourceJs Include="drb.logic.dataverseexecute.js" />
+    <DrbSourceJs Include="drb.logic.executeworkflow.js" />
+    <DrbSourceJs Include="drb.logic.managefileimagedata.js" />
+    <DrbSourceJs Include="drb.collection.js" />
+    <DrbSourceJs Include="drb.initialize.js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Only the assets required by drb_index, css, and generated JS -->
+    <RestBuilderSourceFiles Include="$(MSBuildProjectDirectory)\drb_index.htm">
+      <PackagePath>drb_index.htm</PackagePath>
+    </RestBuilderSourceFiles>
+    <RestBuilderSourceFiles Include="$(MSBuildProjectDirectory)\index.html">
+      <PackagePath>index.html</PackagePath>
+    </RestBuilderSourceFiles>
+    <RestBuilderSourceFiles Include="$(MSBuildProjectDirectory)\css\drb_requirements.css">
+      <PackagePath>css\drb_requirements.css</PackagePath>
+    </RestBuilderSourceFiles>
+    <RestBuilderSourceFiles Include="$(MSBuildProjectDirectory)\css\drb_custom.css">
+      <PackagePath>css\drb_custom.css</PackagePath>
+    </RestBuilderSourceFiles>
+    <RestBuilderSourceFiles Include="$(RestBuilderCustomJs)">
+      <PackagePath>js\drb_custom.js</PackagePath>
+    </RestBuilderSourceFiles>
+    <RestBuilderSourceFiles Include="$(RestBuilderJsDir)\drb_requirements.js">
+      <PackagePath>js\drb_requirements.js</PackagePath>
+    </RestBuilderSourceFiles>
+  </ItemGroup>
+
+  <UsingTask TaskName="ZipDirectory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" />
+
+  <!-- Prevent default compilation so no DLL/PDB is emitted -->
+  <Target Name="CoreCompile">
+    <Message Importance="Low" Text="[RestBuilder] CoreCompile skipped (packaging-only project)." />
+  </Target>
+
+  <Target Name="GenerateDrbCustomJs"
+          Inputs="@(DrbSourceJs->'$(RestBuilderJsDir)\%(Identity)')"
+          Outputs="$(RestBuilderCustomJs)">
+    <Exec Command="cmd /c generate_drb_custom_js.bat" WorkingDirectory="$(RestBuilderJsDir)" />
+  </Target>
+
+    <Target Name="BuildRestBuilderPackage"
+        DependsOnTargets="GenerateDrbCustomJs"
+        AfterTargets="Build">
+      <PropertyGroup>
+    <RestBuilderStagingDir>$(IntermediateOutputPath)restbuilder-package\</RestBuilderStagingDir>
+    <RestBuilderStagingFull>$([System.IO.Path]::GetFullPath('$(RestBuilderStagingDir)'))</RestBuilderStagingFull>
+      </PropertyGroup>
+      <RemoveDir Directories="$(RestBuilderStagingFull)" />
+      <MakeDir Directories="$(RestBuilderStagingFull)" />
+          <Copy SourceFiles="@(RestBuilderSourceFiles)"
+            DestinationFiles="@(RestBuilderSourceFiles->'$(RestBuilderStagingFull)%(PackagePath)')"
+            SkipUnchangedFiles="true" />
+      <ZipDirectory SourceDirectory="$(RestBuilderStagingFull)" DestinationFile="$(RestBuilderPackagePath)" Overwrite="true" />
+    <MakeDir Directories="$(RestBuilderExtensionsDir)" />
+    <Copy SourceFiles="$(RestBuilderPackagePath)"
+          DestinationFiles="$(RestBuilderExtensionsDir)\$(RestBuilderPackageName)" />
+        <RemoveDir Directories="$(TargetDir)" Condition="Exists('$(TargetDir)')" />
+    <ItemGroup>
+      <FileWrites Include="$(RestBuilderPackagePath)" />
+      <FileWrites Include="$(RestBuilderExtensionsDir)\$(RestBuilderPackageName)" />
+    </ItemGroup>
+    <Message Importance="High" Text="[RestBuilder] Created $(RestBuilderPackageName)" />
+  </Target>
+
+</Project>

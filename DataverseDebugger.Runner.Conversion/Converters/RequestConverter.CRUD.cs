@@ -1,0 +1,524 @@
+using System;
+using System.Linq;
+using System.Text.Json;
+using DataverseDebugger.Runner.Conversion.Utils.Constants;
+using DataverseDebugger.Runner.Conversion.Model;
+using Microsoft.OData.Edm;
+using Microsoft.OData.UriParser;
+using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Xrm.Sdk.Metadata;
+using Microsoft.Xrm.Sdk.Query;
+
+namespace DataverseDebugger.Runner.Conversion.Converters
+{
+    /// <summary>
+    /// Partial class containing CRUD (Create, Retrieve, Update, Delete) conversion methods.
+    /// </summary>
+    public partial class RequestConverter
+    {
+        /// <summary>
+        /// Converts a DELETE request to a DeleteRequest.
+        /// </summary>
+        /// <param name="conversionResult">The conversion result to populate.</param>
+        /// <param name="path">The parsed OData path.</param>
+        private void ConvertToDeleteRequest(RequestConversionResult conversionResult, ODataPath path)
+        {
+            var entitySegment = path.FirstSegment as EntitySetSegment ?? throw new NotSupportedException("First segment should not be of type: " + path.FirstSegment.EdmType);
+            var keySegment = path.LastSegment as KeySegment ?? throw new NotSupportedException("First segment should not be of type: " + path.FirstSegment.EdmType);
+            var entity = this.Context.MetadataCache.GetEntityFromSetName(entitySegment.Identifier);
+            if (entity == null)
+            {
+                throw new NotSupportedException("Entity not found: " + entity);
+            }
+            DeleteRequest deleteRequest = new DeleteRequest
+            {
+                Target = GetEntityReferenceFromKeySegment(entity, keySegment)
+            };
+            conversionResult.ConvertedRequest = deleteRequest;
+        }
+
+        /// <summary>
+        /// Converts a GET request to a RetrieveRequest.
+        /// </summary>
+        /// <param name="conversionResult">The conversion result to populate.</param>
+        /// <param name="parser">The OData URI parser for extracting $select options.</param>
+        /// <param name="path">The parsed OData path.</param>
+        private void ConvertToRetrieveRequest(RequestConversionResult conversionResult, ODataUriParser parser, ODataPath path)
+        {
+            var entitySegment = path.FirstSegment as EntitySetSegment ?? throw new NotSupportedException("First segment should not be of type: " + path.FirstSegment.EdmType);
+            var keySegment = path.LastSegment as KeySegment ?? throw new NotSupportedException("First segment should not be of type: " + path.FirstSegment.EdmType);
+            var entity = this.Context.MetadataCache.GetEntityFromSetName(entitySegment.Identifier);
+            if (entity == null)
+            {
+                throw new NotSupportedException("Entity not found: " + entity);
+            }
+
+            var columnSet = GetColumnSet(parser, entity);
+
+            RetrieveRequest retrieveRequest = new RetrieveRequest
+            {
+                Target = GetEntityReferenceFromKeySegment(entity, keySegment),
+                ColumnSet = columnSet
+            };
+            conversionResult.ConvertedRequest = retrieveRequest;
+        }
+
+        /// <summary>
+        /// Builds a ColumnSet from OData $select query option.
+        /// </summary>
+        /// <param name="parser">The OData URI parser.</param>
+        /// <param name="entityMetadata">Optional entity metadata for column name resolution.</param>
+        /// <returns>A ColumnSet with selected columns, or AllColumns if no $select specified.</returns>
+        private ColumnSet GetColumnSet(ODataUriParser parser, EntityMetadata entityMetadata = null)
+        {
+            var selectAndExpand = parser.ParseSelectAndExpand();
+            if (selectAndExpand == null)
+            {
+                return new ColumnSet(true);
+            }
+
+            // If we see anything more complex than simple property selects (e.g., $expand), just fall back to all columns
+            if (selectAndExpand.SelectedItems.Any(si => !(si is PathSelectItem pathSelectItem) || pathSelectItem.HasOptions || pathSelectItem.SelectedPath.Count != 1 || !(pathSelectItem.SelectedPath.FirstSegment is PropertySegment)))
+            {
+                return new ColumnSet(true);
+            }
+
+            if (selectAndExpand.AllSelected)
+            {
+                return new ColumnSet(true);
+            }
+
+            ColumnSet columnSet = new ColumnSet();
+            
+            // Cache metadata lookup and suffix string to avoid repeated operations
+            EntityMetadata entityMetadataWithAttributes = null;
+            string entitySuffix = null;
+            if (entityMetadata != null)
+            {
+                entityMetadataWithAttributes = this.Context.MetadataCache.GetEntityMetadataWithAttributes(entityMetadata.LogicalName);
+                entitySuffix = "_" + entityMetadata.LogicalName;
+            }
+            
+            foreach (var item in selectAndExpand.SelectedItems)
+            {
+                var pathSelectItem = (PathSelectItem)item;
+                var propertySegment = (PropertySegment)pathSelectItem.SelectedPath.FirstSegment;
+                var navigationProperties = propertySegment.Property.DeclaringType.NavigationProperties();
+                var navigationProperty = navigationProperties.FirstOrDefault(p => p.ReferentialConstraint != null && p.ReferentialConstraint.PropertyPairs.Any(rc => rc.DependentProperty?.Name == propertySegment.Identifier));
+                
+                string columnName;
+                if (navigationProperty == null)
+                {
+                    columnName = propertySegment.Identifier;
+                }
+                else
+                {
+                    columnName = navigationProperty.Name.ToLowerInvariant();
+                }
+                
+                // Trim entity suffix if present (e.g., hds_originatingpricelist_pricelevel -> hds_originatingpricelist)
+                // Only trim if we can verify the trimmed name exists in metadata to avoid false positives
+                if (entitySuffix != null && columnName.EndsWith(entitySuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var trimmedName = columnName.Substring(0, columnName.Length - entitySuffix.Length);
+                    var attributeExists = entityMetadataWithAttributes.Attributes.Any(a => string.Equals(a.LogicalName, trimmedName, StringComparison.OrdinalIgnoreCase));
+                    
+                    if (attributeExists)
+                    {
+                        columnName = trimmedName;
+                    }
+                }
+                
+                columnSet.AddColumn(columnName);
+            }
+            
+            return columnSet;
+        }
+
+
+        /// <summary>
+        /// Converts a POST or PATCH request to a CreateRequest or UpdateRequest.
+        /// </summary>
+        /// <param name="conversionResult">The conversion result to populate.</param>
+        /// <param name="path">The parsed OData path.</param>
+        private void ConvertToCreateUpdateRequest(RequestConversionResult conversionResult, ODataPath path)
+        {
+            var entity = this.Context.MetadataCache.GetEntityFromSetName(path.FirstSegment.Identifier) ?? throw new ApplicationException("Entity not found: " + path.FirstSegment.Identifier);
+            KeySegment keySegment = null;
+            if (conversionResult.SrcRequest.Method == "PATCH")
+            {
+                keySegment = path.LastSegment as KeySegment;
+
+            }
+            conversionResult.ConvertedRequest = ConvertToCreateUpdateRequest(keySegment, conversionResult, entity.LogicalName);
+        }
+
+        /// <summary>
+        /// Converts request body JSON to a CreateRequest or UpdateRequest.
+        /// </summary>
+        private OrganizationRequest ConvertToCreateUpdateRequest(KeySegment keySegment, RequestConversionResult conversionResult, string entityLogicalName)
+        {
+            string body = conversionResult.SrcRequest.Body ?? throw new NotSupportedException("A body was expected!");
+            return ConvertToCreateUpdateRequest(keySegment, body, entityLogicalName);
+        }
+
+        /// <summary>
+        /// Creates a CreateRequest or UpdateRequest from JSON body content.
+        /// </summary>
+        /// <param name="keySegment">The key segment for updates; null for creates.</param>
+        /// <param name="body">The JSON body content.</param>
+        /// <param name="entityLogicalName">The entity logical name.</param>
+        /// <returns>A CreateRequest or UpdateRequest with the parsed entity data.</returns>
+        private OrganizationRequest ConvertToCreateUpdateRequest(KeySegment keySegment, string body, string entityLogicalName)
+        {
+            var entityMetadata = this.Context.MetadataCache.GetEntityMetadataWithAttributes(entityLogicalName);
+            Entity record = new Entity(entityLogicalName);
+            OrganizationRequest request;
+            if (keySegment == null)
+            {
+                request = new CreateRequest()
+                {
+                    Target = record
+                };
+            }
+            else
+            {
+                request = new UpdateRequest()
+                {
+                    Target = record
+                };
+                GetIdFromKeySegment(keySegment, out var id, out var keys);
+                if (id == Guid.Empty)
+                {
+                    record.KeyAttributes = keys;
+                }
+                else
+                {
+                    record.Id = id;
+                }
+            }
+
+            using (JsonDocument json = JsonDocument.Parse(body))
+            {
+                ReadEntityFromJson(entityMetadata, record, json.RootElement);
+            }
+
+            // Final normalization: remove any trailing "_<entity>" suffix from attribute names (e.g., hds_lookup_pricelevel -> hds_lookup).
+            // Only trim if the trimmed attribute exists in metadata to avoid false positives.
+            var entitySuffix = "_" + record.LogicalName;
+            var keysToTrim = record.Attributes.Keys
+                .Where(k => k.EndsWith(entitySuffix, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            
+            if (keysToTrim.Count > 0)
+            {
+                foreach (var key in keysToTrim)
+                {
+                    var trimmedKey = key.Substring(0, key.Length - entitySuffix.Length);
+                    
+                    // Only trim if the trimmed attribute exists in metadata or if it doesn't already exist in the record
+                    var attributeMetadata = entityMetadata.Attributes.FirstOrDefault(a => string.Equals(a.LogicalName, trimmedKey, StringComparison.OrdinalIgnoreCase));
+                    if (attributeMetadata != null && !record.Attributes.Contains(trimmedKey))
+                    {
+                        record[trimmedKey] = record[key];
+                        record.Attributes.Remove(key);
+                    }
+                }
+            }
+
+            return request;
+        }
+
+        /// <summary>
+        /// Reads entity attributes from a JSON element and populates an Entity record.
+        /// </summary>
+        /// <param name="entityMetadata">The entity metadata for attribute type resolution.</param>
+        /// <param name="record">The Entity record to populate.</param>
+        /// <param name="json">The JSON element containing attribute values.</param>
+        /// <param name="primaryKeyPropertyName">Optional primary key property name from EDM model.</param>
+        private void ReadEntityFromJson(EntityMetadata entityMetadata, Entity record, JsonElement json, string primaryKeyPropertyName = null)
+        {
+            // Cache entity suffix to avoid repeated string concatenation
+            var entitySuffix = "_" + record.LogicalName;
+            
+            foreach (var node in json.EnumerateObject())
+            {
+                string key = node.Name;
+                if (key.EndsWith("@OData.Community.Display.V1.FormattedValue"))
+                    continue;
+
+                if (key.EndsWith("@odata.bind"))
+                {
+                    key = ExtractAttributeNameFromodatabind(entityMetadata, key);
+                }
+                else if (key.Contains("@odata.type"))
+                {
+                    //ignore
+                    //Todo : check if coherent with entitymetadata ?
+                    continue;
+                }
+                else if (key.Contains("@"))
+                {
+                    throw new NotSupportedException("Unknow property key:" + key);
+                }
+
+                AttributeMetadata attributeMetadata = entityMetadata.Attributes.FirstOrDefault(a => a.LogicalName == key);
+                if (attributeMetadata != null)
+                {
+                    object value = ConvertValueToAttribute(attributeMetadata, node.Value);
+                    record.Attributes.Add(key, value);
+                }
+                else if (key.EndsWith(entitySuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Fallback: remove the entity suffix if present (e.g., *_pricelevel) and retry.
+                    var trimmedKey = key.Substring(0, key.Length - entitySuffix.Length);
+                    attributeMetadata = entityMetadata.Attributes.FirstOrDefault(a => string.Equals(a.LogicalName, trimmedKey, StringComparison.OrdinalIgnoreCase));
+                    if (attributeMetadata != null)
+                    {
+                        object value = ConvertValueToAttribute(attributeMetadata, node.Value);
+                        record.Attributes.Add(trimmedKey, value);
+                        continue;
+                    }
+                }
+                else if (key == primaryKeyPropertyName)
+                {
+                    attributeMetadata = entityMetadata.Attributes.FirstOrDefault(a => a.IsPrimaryId == true);
+                    record.Id = (Guid)ConvertValueToAttribute(attributeMetadata, node.Value);
+                }
+                else
+                {
+                    var relation = entityMetadata.OneToManyRelationships.FirstOrDefault(r => r.SchemaName == key) ?? throw new NotSupportedException("No attribute nor relation found: " + key);
+                    if (relation.ReferencingEntity != "activityparty")
+                    {
+                        throw new NotSupportedException("Unsupported relation found: " + key);
+                    }
+                    AddActivityParties(record, node.Value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Extracts the attribute name from an @odata.bind property key.
+        /// </summary>
+        /// <param name="entityMetadata">The entity metadata for relationship resolution.</param>
+        /// <param name="odatabindValue">The property key ending with @odata.bind.</param>
+        /// <returns>The resolved attribute logical name.</returns>
+        private static string ExtractAttributeNameFromodatabind(EntityMetadata entityMetadata, string odatabindValue)
+        {
+            const string odataBindSuffix = "@odata.bind";
+            string key = odatabindValue.Substring(0, odatabindValue.Length - odataBindSuffix.Length).ToLowerInvariant();
+            var relation = entityMetadata.ManyToOneRelationships.FirstOrDefault(r =>
+                string.Equals(r.ReferencingEntityNavigationPropertyName, key, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(r.ReferencedEntityNavigationPropertyName, key, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(r.SchemaName, key, StringComparison.OrdinalIgnoreCase));
+
+            // Some nav property names coming from the client include the entity logical name suffix (e.g., *_pricelevel).
+            // If we didn't find a relation, try trimming the current entity logical name suffix and retry.
+            var entitySuffix = "_" + entityMetadata.LogicalName;
+            if (relation == null && key.EndsWith(entitySuffix, StringComparison.OrdinalIgnoreCase))
+            {
+                var trimmedKey = key.Substring(0, key.Length - entitySuffix.Length);
+                relation = entityMetadata.ManyToOneRelationships.FirstOrDefault(r =>
+                    string.Equals(r.ReferencingEntityNavigationPropertyName, trimmedKey, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(r.ReferencedEntityNavigationPropertyName, trimmedKey, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(r.SchemaName, trimmedKey, StringComparison.OrdinalIgnoreCase));
+                if (relation != null)
+                {
+                    key = trimmedKey;
+                }
+                else
+                {
+                    // No relation found, but still trim the suffix to fall back to the lookup attribute name.
+                    key = trimmedKey;
+                }
+            }
+            
+            if (relation != null)
+            {
+                key = relation.ReferencingAttribute;
+            }
+            
+            return key;
+        }
+
+        /// <summary>
+        /// Adds activity party records to an entity from JSON array.
+        /// </summary>
+        /// <param name="record">The activity entity to add parties to.</param>
+        /// <param name="values">The JSON array of activity party objects.</param>
+        private void AddActivityParties(Entity record, JsonElement values)
+        {
+            var entityMetadata = this.Context.MetadataCache.GetEntityMetadataWithAttributes("activityparty");
+            foreach (var value in values.EnumerateArray())
+            {
+                int participationTypeMask = -1;
+                EntityReference entityReference = null;
+                foreach (var attribute in value.EnumerateObject())
+                {
+                    if (attribute.Name == "participationtypemask")
+                    {
+                        participationTypeMask = attribute.Value.GetInt32();
+                    }
+                    else if (attribute.Name.StartsWith("partyid_") && attribute.Name.EndsWith("@odata.bind"))
+                    {
+                        string attributeName = ExtractAttributeNameFromodatabind(entityMetadata, attribute.Name);
+                        AttributeMetadata attributeMetadata = entityMetadata.Attributes.FirstOrDefault(a => a.LogicalName == attributeName);
+                        if (attributeMetadata != null)
+                        {
+                            entityReference = ConvertValueToAttribute(attributeMetadata, attribute.Value) as EntityReference;
+                        }
+                    }
+                }
+                if (participationTypeMask == -1)
+                {
+                    throw new NotSupportedException("ParticipationTypeMask not found!");
+                }
+
+                var targetAttributeName = GetActivityPartyAttributeName(record.LogicalName, participationTypeMask);
+                EntityCollection collection = record.GetAttributeValue<EntityCollection>(targetAttributeName);
+                if (collection == null)
+                {
+                    record[targetAttributeName] = collection = new EntityCollection();
+                    collection.EntityName = "activityparty";
+                }
+                var party = new Entity("activityparty");
+                //todo:other columns necessary ?
+#pragma warning disable S2583 // Conditionally executed code should be reachable. Justification = false positive. There are some paths where entityReference is null and others where it's not null.
+                party["partyid"] = entityReference ?? throw new NotSupportedException("Target record in activity party list not found!");
+#pragma warning restore S2583 // Conditionally executed code should be reachable
+
+                collection.Entities.Add(party);
+            }
+
+        }
+
+        /// <summary>
+        /// Gets the target attribute name for an activity party based on activity type and participation type.
+        /// </summary>
+        /// <param name="logicalName">The activity entity logical name.</param>
+        /// <param name="participationTypeMask">The activity party participation type mask.</param>
+        /// <returns>The attribute name for the activity party collection.</returns>
+        /// <remarks>
+        /// See: https://learn.microsoft.com/en-us/power-apps/developer/data-platform/activityparty-entity#activity-party-types-available-for-each-activity
+        /// </remarks>
+        private string GetActivityPartyAttributeName(string logicalName, int participationTypeMask)
+        {
+            //https://learn.microsoft.com/en-us/power-apps/developer/data-platform/activityparty-entity#activity-party-types-available-for-each-activity
+            switch ((logicalName, participationTypeMask))
+            {
+                case var tuple when tuple.logicalName == "appointment" && ActivityPartyType.OptionalAttendee == tuple.participationTypeMask:
+                    return "optionalattendees";
+                case var tuple when tuple.logicalName == "appointment" && ActivityPartyType.Organizer == tuple.participationTypeMask:
+                    return "organizer";
+                case var tuple when tuple.logicalName == "appointment" && ActivityPartyType.RequiredAttendee == tuple.participationTypeMask:
+                    return "requiredattendees";
+                case var tuple when tuple.logicalName == "campaignactivity" && ActivityPartyType.Sender == tuple.participationTypeMask:
+                    return "from";
+                case var tuple when tuple.logicalName == "campaignresponse" && ActivityPartyType.Customer == tuple.participationTypeMask:
+                    return "from";
+                case var tuple when tuple.logicalName == "email" && ActivityPartyType.BccRecipient == tuple.participationTypeMask:
+                    return "bcc";
+                case var tuple when tuple.logicalName == "email" && ActivityPartyType.CCRecipient == tuple.participationTypeMask:
+                    return "cc";
+                case var tuple when tuple.logicalName == "email" && ActivityPartyType.Sender == tuple.participationTypeMask:
+                    return "from";
+                case var tuple when tuple.logicalName == "email" && ActivityPartyType.ToRecipient == tuple.participationTypeMask:
+                    return "to";
+                case var tuple when tuple.logicalName == "fax" && ActivityPartyType.Sender == tuple.participationTypeMask:
+                    return "from";
+                case var tuple when tuple.logicalName == "fax" && ActivityPartyType.ToRecipient == tuple.participationTypeMask:
+                    return "to";
+                case var tuple when tuple.logicalName == "letter" && ActivityPartyType.BccRecipient == tuple.participationTypeMask:
+                    return "bcc";
+                case var tuple when tuple.logicalName == "letter" && ActivityPartyType.Sender == tuple.participationTypeMask:
+                    return "from";
+                case var tuple when tuple.logicalName == "letter" && ActivityPartyType.ToRecipient == tuple.participationTypeMask:
+                    return "to";
+                case var tuple when tuple.logicalName == "phonecall" && ActivityPartyType.Sender == tuple.participationTypeMask:
+                    return "from";
+                case var tuple when tuple.logicalName == "phonecall" && ActivityPartyType.ToRecipient == tuple.participationTypeMask:
+                    return "to";
+                case var tuple when tuple.logicalName == "recurringappointmentmaster" && ActivityPartyType.OptionalAttendee == tuple.participationTypeMask:
+                    return "optionalattendees";
+                case var tuple when tuple.logicalName == "recurringappointmentmaster" && ActivityPartyType.Organizer == tuple.participationTypeMask:
+                    return "organizer";
+                case var tuple when tuple.logicalName == "recurringappointmentmaster" && ActivityPartyType.RequiredAttendee == tuple.participationTypeMask:
+                    return "requiredattendees";
+                case var tuple when tuple.logicalName == "serviceappointment" && ActivityPartyType.Customer == tuple.participationTypeMask:
+                    return "customer";
+                case var tuple when tuple.logicalName == "serviceappointment" && ActivityPartyType.Resource == tuple.participationTypeMask:
+                    return "resource";
+                case var tuple when ActivityPartyType.Owner == tuple.participationTypeMask:
+                    return "ownerid";
+            }
+            throw new NotImplementedException("Unknow activity party attribute: " + logicalName + "/" + participationTypeMask);
+        }
+
+
+        /// <summary>
+        /// Converts a JSON value to the appropriate SDK attribute type based on attribute metadata.
+        /// </summary>
+        /// <param name="attributeMetadata">The attribute metadata defining the expected type.</param>
+        /// <param name="value">The JSON value to convert.</param>
+        /// <returns>The converted value (e.g., string, int, EntityReference, OptionSetValue, Money).</returns>
+        private object ConvertValueToAttribute(AttributeMetadata attributeMetadata, JsonElement value)
+        {
+            if (value.ValueKind == JsonValueKind.Null)
+            {
+                return null;
+            }
+            switch (attributeMetadata.AttributeType)
+            {
+                case AttributeTypeCode.BigInt:
+                    return value.GetInt64();
+                case AttributeTypeCode.Customer:
+                case AttributeTypeCode.Lookup:
+                case AttributeTypeCode.Owner:
+                    var parser = new ODataUriParser(this.Context.Model, new Uri(value.GetString(), UriKind.Relative))
+                    {
+                        Resolver = new AlternateKeysODataUriResolver(this.Context.Model)
+                    };
+                    var path = parser.ParsePath();
+                    if (path.Count != 2)
+                    {
+                        throw new NotSupportedException("2 segments was expected:" + value.GetString());
+                    }
+                    var entitySegment = path.FirstSegment as EntitySetSegment;
+                    var keySegment = path.LastSegment as KeySegment;
+                    if (entitySegment == null || keySegment == null)
+                    {
+                        throw new NotSupportedException($"Error while parsing[{value.GetString()}]: {entitySegment}-{keySegment}");
+                    }
+                    var entity = this.Context.MetadataCache.GetEntityFromSetName(path.FirstSegment.Identifier);
+                    return GetEntityReferenceFromKeySegment(entity, keySegment);
+                case AttributeTypeCode.String:
+                case AttributeTypeCode.Memo:
+                    return value.GetString();
+                case AttributeTypeCode.Boolean:
+                    return value.GetBoolean();
+                case AttributeTypeCode.DateTime:
+                    return value.GetDateTime();
+                case AttributeTypeCode.Decimal:
+                    return value.GetDecimal();
+                case AttributeTypeCode.Money:
+                    return new Money(value.GetDecimal());
+                case AttributeTypeCode.Double:
+                    return value.GetDouble();
+                case AttributeTypeCode.Integer:
+                    return value.GetInt32();
+                case AttributeTypeCode.Picklist:
+                case AttributeTypeCode.State:
+                case AttributeTypeCode.Status:
+                    return new OptionSetValue(value.GetInt32());
+                case AttributeTypeCode.Uniqueidentifier:
+                    return value.GetGuid();
+                default:
+                    throw new NotSupportedException("Unsupported type:" + attributeMetadata.AttributeType);
+            }
+        }
+
+
+
+    }
+}

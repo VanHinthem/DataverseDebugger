@@ -1,0 +1,75 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataverseDebugger.Protocol\DataverseDebugger.Protocol.csproj" />
+    <ProjectReference Include="..\DataverseDebugger.RestBuilder\DataverseDebugger.RestBuilder.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>dd_logo.ico</ApplicationIcon>
+    <AssemblyName>DataverseDebugger</AssemblyName>
+    <RunnerProjectPath>..\DataverseDebugger.Runner\DataverseDebugger.Runner.csproj</RunnerProjectPath>
+    <RunnerTargetFramework>net48</RunnerTargetFramework>
+    <RunnerPublishSubdir>runner</RunnerPublishSubdir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\dd_logo.png" Link="dd_logo.png" />
+    <Resource Include="dd_logo.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="extensions\DataverseRESTBuilder.bundle.zip">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.67.2" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.67.2" />
+    <PackageReference Include="Microsoft.OData.Core" Version="7.16.0" />
+    <PackageReference Include="Microsoft.OData.Edm" Version="7.16.0" />
+    <Compile Update="Converters\StatusConverters.cs">
+      <DependentUpon></DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <Target Name="CopyRunnerOnPublish" AfterTargets="Publish">
+    <MSBuild Projects="$(RunnerProjectPath)" Targets="Build" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_RunnerTargetOutputs" />
+    </MSBuild>
+    <PropertyGroup>
+      <RunnerOutputRoot>..\DataverseDebugger.Runner\bin\$(Configuration)\$(RunnerTargetFramework)\</RunnerOutputRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <RunnerPublishFiles Include="$(RunnerOutputRoot)**\*.*"
+                           Exclude="$(RunnerOutputRoot)**\*.xml" />
+    </ItemGroup>
+    <MakeDir Directories="$(PublishDir)$(RunnerPublishSubdir)" />
+    <Copy SourceFiles="@(RunnerPublishFiles)"
+          DestinationFiles="@(RunnerPublishFiles->'$(PublishDir)$(RunnerPublishSubdir)\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <UsingTask TaskName="ZipDirectory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" />
+
+  <Target Name="ZipPublishOutput"
+          AfterTargets="CopyRunnerOnPublish"
+          Condition="Exists('$(PublishDir)')">
+    <PropertyGroup>
+      <PublishArchiveDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\artifacts'))</PublishArchiveDir>
+      <PublishArchiveFile>$(PublishArchiveDir)\DataverseDebugger-$(ProductVersion).zip</PublishArchiveFile>
+    </PropertyGroup>
+    <MakeDir Directories="$(PublishArchiveDir)" />
+    <Delete Files="$(PublishArchiveFile)" Condition="Exists('$(PublishArchiveFile)')" />
+    <ZipDirectory SourceDirectory="$(PublishDir)" DestinationFile="$(PublishArchiveFile)" Overwrite="true" />
+    <Message Importance="High" Text="Publish output archived at $(PublishArchiveFile)" />
+  </Target>
+
+</Project>

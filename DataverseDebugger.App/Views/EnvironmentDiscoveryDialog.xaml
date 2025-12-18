@@ -1,0 +1,134 @@
+<Window x:Class="DataverseDebugger.App.Views.EnvironmentDiscoveryDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add Dataverse Environment"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        MinWidth="540">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Sign in with your Dataverse account and select an environment to add." 
+                       Foreground="#37474F" FontWeight="SemiBold" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0 12 0 12">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="UseCachedSignInButton"
+                    Content="✅ Use saved sign-in"
+                    Width="180"
+                    Height="30"
+                    Margin="0 0 12 0"
+                    HorizontalAlignment="Left"
+                    Visibility="Collapsed"
+                    Click="OnUseCachedSignInClick"/>
+                <Button x:Name="SignInButton"
+                    Content="🔐 Sign in"
+                    Width="140"
+                    Height="30"
+                    HorizontalAlignment="Left"
+                    Click="OnSignInClick"/>
+            </StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Row="2" Margin="0 0 0 12">
+            <TextBlock x:Name="StatusText" Margin="0 6 0 0" Foreground="#607D8B"/>
+            <TextBlock x:Name="AuthStatusText"
+            Margin="0 12 0 12"
+            VerticalAlignment="Center"
+            Foreground="#C62828"
+            FontWeight="SemiBold"
+            Text="Not signed in"/>
+        </StackPanel>
+        <StackPanel Grid.Row="3" Margin="0 0 0 12" Visibility="Collapsed">
+            <ProgressBar x:Name="ProgressBar" Height="6" IsIndeterminate="True" Visibility="Collapsed"/>
+        </StackPanel>
+
+        <StackPanel x:Name="FilterPanel" Grid.Row="4" Orientation="Horizontal" Margin="0 0 0 12" Visibility="Collapsed">
+            <TextBlock Text="Filter by URL:" VerticalAlignment="Center" Foreground="#546E7A" Margin="0 0 8 0"/>
+            <TextBox x:Name="UrlFilterBox"
+                     Width="360"
+                     TextChanged="OnFilterTextChanged"
+                     ToolTip="Type part of the environment URL to filter the list."/>
+        </StackPanel>
+
+    <ListBox x:Name="InstanceList"
+            Grid.Row="5"
+            Width="500"
+            Height="220"
+            Visibility="Collapsed"
+            SelectionChanged="OnInstanceSelectionChanged">
+        <ListBox.ItemTemplate>
+            <DataTemplate>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="1"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Content -->
+                    <Grid Grid.Row="0"
+                        Margin="8 6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                Text="{Binding FriendlyName}"
+                                FontWeight="SemiBold"
+                                Foreground="#263238"/>
+
+                        <TextBlock Grid.Column="1"
+                                Text=" - "
+                                Foreground="#90A4AE"
+                                Margin="4 0"/>
+
+                        <TextBlock Grid.Column="2"
+                                Text="{Binding WebUrl}"
+                                Foreground="#546E7A"
+                                FontSize="12"
+                                TextTrimming="CharacterEllipsis"/>
+                    </Grid>
+
+                    <!-- Divider -->
+                    <Border Grid.Row="1"
+                            Height="1"
+                            Background="#ECEFF1"
+                            Margin="8 0"/>
+                </Grid>
+            </DataTemplate>
+        </ListBox.ItemTemplate>
+    </ListBox>
+
+
+        <StackPanel x:Name="DetailsPanel" Grid.Row="6" Visibility="Visible" Margin="0 12 0 0">
+            <StackPanel x:Name="ManualUrlPanel" Orientation="Horizontal" Margin="0 0 0 6">
+                <TextBlock Text="Environment URL:" Width="110" VerticalAlignment="Center" Foreground="#546E7A"/>
+                <TextBox x:Name="ManualUrlBox"
+                         Width="320"
+                         ToolTip="Paste the Dataverse environment URL to add it directly."
+                         TextChanged="OnManualUrlTextChanged"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0 0 0 6">
+                <TextBlock Text="Display name:" Width="110" VerticalAlignment="Center" Foreground="#546E7A"/>
+                <TextBox x:Name="DisplayNameBox" Width="320" TextChanged="OnDisplayNameTextChanged"/>
+            </StackPanel>
+            <TextBlock x:Name="SelectedUrlText" Foreground="#607D8B" FontSize="12" Visibility="Collapsed"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0 12 0 0">
+                <Button x:Name="AddButton" Content="Add environment" Width="150" Height="30" Margin="0 0 8 0" Click="OnAddEnvironmentClick" IsEnabled="True"/>
+                <Button Content="Cancel" Width="90" Height="30" IsCancel="True"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

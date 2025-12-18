@@ -1,0 +1,84 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore NuGet packages
+        run: nuget restore DataverseDebugger.sln
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore DataverseDebugger.sln
+
+      - name: Build
+        run: dotnet build DataverseDebugger.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test DataverseDebugger.Tests/DataverseDebugger.Tests.csproj -c Release --no-build
+
+  release:
+    name: Publish Release Artifact
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore NuGet packages
+        run: nuget restore DataverseDebugger.sln
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore DataverseDebugger.sln
+
+      - name: Publish App
+        run: dotnet publish DataverseDebugger.App/DataverseDebugger.App.csproj -c Release --no-restore
+
+      - name: Locate publish artifact
+        id: package
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem artifacts -Filter 'DataverseDebugger-*.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $zip) {
+            Write-Error 'Publish zip not found under artifacts/'
+          }
+          "zip_path=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DataverseDebugger-publish
+          path: ${{ steps.package.outputs.zip_path }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.zip_path }}
+          name: DataverseDebugger ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

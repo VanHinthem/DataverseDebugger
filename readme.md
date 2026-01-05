@@ -7,6 +7,8 @@
 
 Dataverse Debugger is a Windows desktop tool that lets you reproduce Microsoft Dataverse requests locally, attach Visual Studio, and validate changes before you ever redeploy to the tenant.
 
+[![Build and Release](https://github.com/RamonvanHinthem/DataverseDebugger/actions/workflows/build-and-release.yml/badge.svg)](https://github.com/RamonvanHinthem/DataverseDebugger/actions/workflows/build-and-release.yml)
+
 ![.NET](https://img.shields.io/badge/.NET-8.0-512BD4) ![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4) ![JavaScript](https://img.shields.io/badge/JavaScript-ES2020-F7DF1E) ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6)
 
 ## In a Nutshell

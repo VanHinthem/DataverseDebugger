@@ -44,6 +44,7 @@ namespace DataverseDebugger.App.Views
 
         public event Action<bool>? PluginDebuggingChanged;
         public event Func<RestBuilderInjectionRequest, Task>? SendToBuilderRequested;
+        public Action<bool>? DebugToggleRequested { get; set; }
 
         public ObservableCollection<CapturedRequest> Requests { get; }
         public ObservableCollection<string> GlobalRunnerTrace { get; }
@@ -76,6 +77,7 @@ namespace DataverseDebugger.App.Views
         private bool _showConvertibleIndicator;
         private bool _showStepIndicator = true;
         private bool _showNoIndicator;
+        private bool _suppressDebugToggle;
 
         public RequestsView(ObservableCollection<CapturedRequest> requests, RunnerClient runnerClient, CaptureSettingsModel settings, RunnerSettingsModel runnerSettings, ObservableCollection<string>? globalTrace = null, Action<StepInfoModel>? stepSetter = null)
         {
@@ -92,6 +94,18 @@ namespace DataverseDebugger.App.Views
             }
             InitializeComponent();
             DataContext = this;
+            if (CaptureToggle != null)
+            {
+                CaptureToggle.IsChecked = _settings.CaptureEnabled;
+            }
+            if (AutoProxyToggle != null)
+            {
+                AutoProxyToggle.IsChecked = _settings.AutoProxy;
+            }
+            if (DebugToggle != null)
+            {
+                SetDebugToggleVisual(_settings.AutoDebugMatched);
+            }
             _settings.PropertyChanged += OnSettingsPropertyChanged;
             Loaded += OnLoaded;
             Requests.CollectionChanged += OnRequestsCollectionChanged;
@@ -146,6 +160,50 @@ namespace DataverseDebugger.App.Views
             _showConvertibleIndicator = ConvertibleFilterToggle?.IsChecked == true;
             _showNoIndicator = NoIndicatorFilterToggle?.IsChecked == true;
             RefreshRequestFilter();
+        }
+
+        private void OnCaptureToggleChanged(object sender, RoutedEventArgs e)
+        {
+            if (CaptureToggle == null)
+            {
+                return;
+            }
+
+            _settings.CaptureEnabled = CaptureToggle.IsChecked == true;
+        }
+
+        private void OnAutoProxyToggleChanged(object sender, RoutedEventArgs e)
+        {
+            if (AutoProxyToggle == null)
+            {
+                return;
+            }
+
+            _settings.AutoProxy = AutoProxyToggle.IsChecked == true;
+        }
+
+        private void OnDebugToggleChanged(object sender, RoutedEventArgs e)
+        {
+            if (_suppressDebugToggle)
+            {
+                return;
+            }
+            var targetState = DebugToggle?.IsChecked == true;
+            if (targetState)
+            {
+                SetDebugToggleVisual(false);
+            }
+            DebugToggleRequested?.Invoke(targetState);
+        }
+
+        private void SetDebugToggleVisual(bool enabled)
+        {
+            _suppressDebugToggle = true;
+            if (DebugToggle != null)
+            {
+                DebugToggle.IsChecked = enabled;
+            }
+            _suppressDebugToggle = false;
         }
 
         private async void OnSendToRunner(object sender, RoutedEventArgs e)
@@ -2033,7 +2091,20 @@ namespace DataverseDebugger.App.Views
 
         private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            // Requests view no longer exposes capture filters.
+            if (e.PropertyName == nameof(CaptureSettingsModel.CaptureEnabled) && CaptureToggle != null)
+            {
+                CaptureToggle.IsChecked = _settings.CaptureEnabled;
+            }
+
+            if (e.PropertyName == nameof(CaptureSettingsModel.AutoProxy) && AutoProxyToggle != null)
+            {
+                AutoProxyToggle.IsChecked = _settings.AutoProxy;
+            }
+
+            if (e.PropertyName == nameof(CaptureSettingsModel.AutoDebugMatched) && DebugToggle != null)
+            {
+                SetDebugToggleVisual(_settings.AutoDebugMatched);
+            }
         }
 
         private void OnSaveRequests(object sender, RoutedEventArgs e)

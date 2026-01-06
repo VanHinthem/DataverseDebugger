@@ -903,11 +903,12 @@ namespace DataverseDebugger.App.Views
             var enabled = DebugToggle.IsChecked == true;
             if (enabled)
             {
+                SetDebugToggleVisual(false);
+
                 var instances = VisualStudioAttachService.GetRunningInstances();
                 if (instances.Count == 0)
                 {
                     MessageBox.Show("No running Visual Studio instances found.", "Attach Debugger", MessageBoxButton.OK, MessageBoxImage.Information);
-                    SetDebugToggle(false);
                     return;
                 }
 
@@ -917,32 +918,37 @@ namespace DataverseDebugger.App.Views
                 };
                 if (dialog.ShowDialog() != true || dialog.SelectedInstance == null)
                 {
-                    SetDebugToggle(false);
                     return;
                 }
 
                 if (!VisualStudioAttachService.AttachToRunner(dialog.SelectedInstance, out var error))
                 {
                     MessageBox.Show($"Failed to attach debugger: {error}", "Attach Debugger", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    SetDebugToggle(false);
                     return;
                 }
 
                 _attachedDebugger = dialog.SelectedInstance;
-                _settings.AutoDebugMatched = true;
+                SetDebugToggle(true);
                 _debugMonitorTimer.Start();
-                NotifyDebugStateChanged(true);
                 return;
             }
 
             DisableDebugging(null);
         }
 
-        private void SetDebugToggle(bool enabled)
+        private void SetDebugToggleVisual(bool enabled)
         {
             _suppressDebugToggle = true;
-            DebugToggle.IsChecked = enabled;
+            if (DebugToggle != null)
+            {
+                DebugToggle.IsChecked = enabled;
+            }
             _suppressDebugToggle = false;
+        }
+
+        private void SetDebugToggle(bool enabled)
+        {
+            SetDebugToggleVisual(enabled);
             _settings.AutoDebugMatched = enabled;
             NotifyDebugStateChanged(enabled);
         }
@@ -978,7 +984,7 @@ namespace DataverseDebugger.App.Views
 
         private void DisableDebuggingInternal(string? reason, bool detachRunner)
         {
-            _settings.AutoDebugMatched = false;
+            SetDebugToggle(false);
             if (detachRunner && _attachedDebugger != null)
             {
                 if (!VisualStudioAttachService.DetachRunner(_attachedDebugger, out var error) && !string.IsNullOrWhiteSpace(error))
@@ -987,10 +993,6 @@ namespace DataverseDebugger.App.Views
                 }
             }
             _attachedDebugger = null;
-
-            _suppressDebugToggle = true;
-            DebugToggle.IsChecked = false;
-            _suppressDebugToggle = false;
 
             if (_debugMonitorTimer.IsEnabled)
             {
@@ -1001,8 +1003,6 @@ namespace DataverseDebugger.App.Views
             {
                 LogService.Append(reason);
             }
-
-            NotifyDebugStateChanged(false);
         }
 
         public void RequestDebugToggle(bool enabled)

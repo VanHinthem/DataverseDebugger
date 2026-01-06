@@ -115,6 +115,7 @@ namespace DataverseDebugger.App
             _restBuilderView.BeforeAutoProxyAsync = _requestsView.HandleAutoDebugBeforeProxyAsync;
             _restBuilderView.AfterAutoProxyAsync = _requestsView.HandleAutoDebugAfterResponseAsync;
             _restBuilderView.DebugToggleRequested = enabled => _browserView.RequestDebugToggle(enabled);
+            _requestsView.DebugToggleRequested = enabled => _browserView.RequestDebugToggle(enabled);
             _requestsView.PluginDebuggingChanged += OnPluginDebuggingChanged;
             _requestsView.SendToBuilderRequested += OnSendRequestToBuilderAsync;
             _environmentsView = new EnvironmentsView(OnEnvironmentActivatedAsync, OpenBrowserSection, OnEnvironmentDeactivatedAsync);

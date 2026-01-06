@@ -1,6 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Microsoft.Xrm.Sdk;
+using ExtEventId = Microsoft.Extensions.Logging.EventId;
+using ExtLogLevel = Microsoft.Extensions.Logging.LogLevel;
+using ExtLogger = Microsoft.Extensions.Logging.ILogger;
+using ExtLoggerFactory = Microsoft.Extensions.Logging.ILoggerFactory;
+using ExtLoggerProvider = Microsoft.Extensions.Logging.ILoggerProvider;
+using PluginEventId = Microsoft.Xrm.Sdk.PluginTelemetry.EventId;
+using PluginLogLevel = Microsoft.Xrm.Sdk.PluginTelemetry.LogLevel;
+using PluginLogger = Microsoft.Xrm.Sdk.PluginTelemetry.ILogger;
 
 namespace DataverseDebugger.Runner
 {
@@ -24,8 +33,483 @@ namespace DataverseDebugger.Runner
         /// <inheritdoc />
         public object? GetService(Type serviceType)
         {
-            _services.TryGetValue(serviceType, out var service);
-            return service;
+            if (serviceType == null)
+            {
+                return null;
+            }
+
+            if (_services.TryGetValue(serviceType, out var service))
+            {
+                return service;
+            }
+
+            foreach (var candidate in _services.Values)
+            {
+                if (candidate != null && serviceType.IsInstanceOfType(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            var requestedName = serviceType.FullName;
+            if (!string.IsNullOrEmpty(requestedName))
+            {
+                foreach (var pair in _services)
+                {
+                    if (string.Equals(pair.Key.FullName, requestedName, StringComparison.Ordinal))
+                    {
+                        return pair.Value;
+                    }
+                }
+            }
+
+            if (serviceType.IsGenericType)
+            {
+                var definition = serviceType.GetGenericTypeDefinition();
+                if (definition == typeof(Microsoft.Extensions.Logging.ILogger<>)
+                    && _services.TryGetValue(typeof(ExtLoggerFactory), out var factoryObj)
+                    && factoryObj is ExtLoggerFactory loggerFactory)
+                {
+                    var genericType = serviceType.GetGenericArguments()[0];
+                    var category = genericType.FullName ?? genericType.Name;
+                    return loggerFactory.CreateLogger(category);
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Minimal ILogger implementation that bridges log messages into the runner trace list.
+    /// </summary>
+    internal sealed class StubLogger : ExtLogger
+    {
+        private readonly string _categoryName;
+        private readonly Action<string> _log;
+
+        public StubLogger(string categoryName, Action<string> log)
+        {
+            _categoryName = categoryName;
+            _log = log;
+        }
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull
+        {
+            return NoopScope.Instance;
+        }
+
+        public bool IsEnabled(ExtLogLevel logLevel) => true;
+
+        public void Log<TState>(ExtLogLevel logLevel, ExtEventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string>? formatter)
+        {
+            var message = formatter != null
+                ? formatter(state, exception)
+                : state?.ToString() ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                _log($"[ILogger:{_categoryName}] [{logLevel}] {message}");
+            }
+
+            if (exception != null)
+            {
+                _log(exception.ToString());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Minimal ILoggerFactory implementation that creates StubLogger instances per category.
+    /// </summary>
+    internal sealed class StubLoggerFactory : ExtLoggerFactory
+    {
+        private readonly Action<string> _log;
+
+        public StubLoggerFactory(Action<string> log)
+        {
+            _log = log;
+        }
+
+        public void AddProvider(ExtLoggerProvider provider)
+        {
+            // not needed for local debugging
+        }
+
+        public ExtLogger CreateLogger(string categoryName)
+        {
+            var category = string.IsNullOrWhiteSpace(categoryName) ? "Plugin" : categoryName;
+            return new StubLogger(category, _log);
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// Minimal implementation of Microsoft.Xrm.Sdk.PluginTelemetry.ILogger.
+    /// Bridges telemetry log calls into the runner trace output so plugins depending on the interface keep working.
+    /// </summary>
+    internal sealed class StubPluginTelemetryLogger : PluginLogger
+    {
+        private readonly Action<string> _log;
+        private readonly Dictionary<string, string> _customProperties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        public StubPluginTelemetryLogger(Action<string> log)
+        {
+            _log = log;
+        }
+
+        public IDisposable BeginScope<TState>(TState state)
+        {
+            return NoopScope.Instance;
+        }
+
+        public IDisposable BeginScope(string messageFormat, params object[] args)
+        {
+            var message = FormatMessage(messageFormat, args);
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                _log($"[PluginTelemetry] Scope → {message}");
+            }
+            return NoopScope.Instance;
+        }
+
+        public bool IsEnabled(PluginLogLevel logLevel) => true;
+
+        public void Log<TState>(PluginLogLevel logLevel, PluginEventId eventId, TState state, Exception exception,
+            Func<TState, Exception, string> formatter)
+        {
+            var message = formatter != null ? formatter(state, exception) : state?.ToString() ?? string.Empty;
+            Write(logLevel, eventId, message, exception);
+        }
+
+        public void Log(PluginLogLevel logLevel, PluginEventId eventId, Exception exception, string message, params object[] args)
+        {
+            Write(logLevel, eventId, FormatMessage(message, args), exception);
+        }
+
+        public void Log(PluginLogLevel logLevel, PluginEventId eventId, string message, params object[] args)
+        {
+            Write(logLevel, eventId, FormatMessage(message, args), null);
+        }
+
+        public void Log(PluginLogLevel logLevel, Exception exception, string message, params object[] args)
+        {
+            Write(logLevel, null, FormatMessage(message, args), exception);
+        }
+
+        public void Log(PluginLogLevel logLevel, string message, params object[] args)
+        {
+            Write(logLevel, null, FormatMessage(message, args), null);
+        }
+
+        public void LogCritical(PluginEventId eventId, Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Critical, eventId, FormatMessage(message, args), exception);
+        }
+
+        public void LogCritical(PluginEventId eventId, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Critical, eventId, FormatMessage(message, args), null);
+        }
+
+        public void LogCritical(Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Critical, null, FormatMessage(message, args), exception);
+        }
+
+        public void LogCritical(string message, params object[] args)
+        {
+            Write(PluginLogLevel.Critical, null, FormatMessage(message, args), null);
+        }
+
+        public void LogDebug(PluginEventId eventId, Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Debug, eventId, FormatMessage(message, args), exception);
+        }
+
+        public void LogDebug(PluginEventId eventId, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Debug, eventId, FormatMessage(message, args), null);
+        }
+
+        public void LogDebug(Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Debug, null, FormatMessage(message, args), exception);
+        }
+
+        public void LogDebug(string message, params object[] args)
+        {
+            Write(PluginLogLevel.Debug, null, FormatMessage(message, args), null);
+        }
+
+        public void LogError(PluginEventId eventId, Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Error, eventId, FormatMessage(message, args), exception);
+        }
+
+        public void LogError(PluginEventId eventId, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Error, eventId, FormatMessage(message, args), null);
+        }
+
+        public void LogError(Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Error, null, FormatMessage(message, args), exception);
+        }
+
+        public void LogError(string message, params object[] args)
+        {
+            Write(PluginLogLevel.Error, null, FormatMessage(message, args), null);
+        }
+
+        public void LogInformation(PluginEventId eventId, Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Information, eventId, FormatMessage(message, args), exception);
+        }
+
+        public void LogInformation(PluginEventId eventId, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Information, eventId, FormatMessage(message, args), null);
+        }
+
+        public void LogInformation(Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Information, null, FormatMessage(message, args), exception);
+        }
+
+        public void LogInformation(string message, params object[] args)
+        {
+            Write(PluginLogLevel.Information, null, FormatMessage(message, args), null);
+        }
+
+        public void LogTrace(PluginEventId eventId, Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Trace, eventId, FormatMessage(message, args), exception);
+        }
+
+        public void LogTrace(PluginEventId eventId, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Trace, eventId, FormatMessage(message, args), null);
+        }
+
+        public void LogTrace(Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Trace, null, FormatMessage(message, args), exception);
+        }
+
+        public void LogTrace(string message, params object[] args)
+        {
+            Write(PluginLogLevel.Trace, null, FormatMessage(message, args), null);
+        }
+
+        public void LogWarning(PluginEventId eventId, Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Warning, eventId, FormatMessage(message, args), exception);
+        }
+
+        public void LogWarning(PluginEventId eventId, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Warning, eventId, FormatMessage(message, args), null);
+        }
+
+        public void LogWarning(Exception exception, string message, params object[] args)
+        {
+            Write(PluginLogLevel.Warning, null, FormatMessage(message, args), exception);
+        }
+
+        public void LogWarning(string message, params object[] args)
+        {
+            Write(PluginLogLevel.Warning, null, FormatMessage(message, args), null);
+        }
+
+        public void LogMetric(string metricName, long value)
+        {
+            var name = string.IsNullOrWhiteSpace(metricName) ? "metric" : metricName;
+            _log($"[PluginTelemetry] Metric {name} = {value}");
+        }
+
+        public void LogMetric(string metricName, IDictionary<string, string> metricDimensions, long value)
+        {
+            var name = string.IsNullOrWhiteSpace(metricName) ? "metric" : metricName;
+            var dims = metricDimensions != null && metricDimensions.Count > 0
+                ? $" dims={string.Join(", ", FormatDimensionPairs(metricDimensions))}"
+                : string.Empty;
+            _log($"[PluginTelemetry] Metric {name} = {value}{dims}");
+        }
+
+        public void AddCustomProperty(string propertyName, string propertyValue)
+        {
+            if (string.IsNullOrWhiteSpace(propertyName))
+            {
+                return;
+            }
+
+            _customProperties[propertyName] = propertyValue ?? string.Empty;
+        }
+
+        public void Execute(string activityName, Action action, IEnumerable<KeyValuePair<string, string>> additionalCustomProperties)
+        {
+            AppendCustomProperties(additionalCustomProperties);
+            var name = activityName ?? "activity";
+            Write(PluginLogLevel.Trace, null, $"Execute {name} (sync) started", null);
+            try
+            {
+                action?.Invoke();
+                Write(PluginLogLevel.Trace, null, $"Execute {name} (sync) completed", null);
+            }
+            catch (Exception ex)
+            {
+                Write(PluginLogLevel.Error, null, $"Execute {name} (sync) failed", ex);
+                throw;
+            }
+        }
+
+        public Task ExecuteAsync(string activityName, Func<Task> action, IEnumerable<KeyValuePair<string, string>> additionalCustomProperties)
+        {
+            if (action == null)
+            {
+                return Task.CompletedTask;
+            }
+
+            return ExecuteAsyncCore(activityName, action, additionalCustomProperties);
+        }
+
+        private async Task ExecuteAsyncCore(string activityName, Func<Task> action, IEnumerable<KeyValuePair<string, string>> additionalCustomProperties)
+        {
+            AppendCustomProperties(additionalCustomProperties);
+            var name = activityName ?? "activity";
+            Write(PluginLogLevel.Trace, null, $"Execute {name} (async) started", null);
+            try
+            {
+                await action().ConfigureAwait(false);
+                Write(PluginLogLevel.Trace, null, $"Execute {name} (async) completed", null);
+            }
+            catch (Exception ex)
+            {
+                Write(PluginLogLevel.Error, null, $"Execute {name} (async) failed", ex);
+                throw;
+            }
+        }
+
+        private void Write(PluginLogLevel level, PluginEventId? eventId, string? message, Exception? exception)
+        {
+            var eventSuffix = eventId != null ? $" event={FormatEventId(eventId)}" : string.Empty;
+            var propsSuffix = _customProperties.Count > 0
+                ? $" props={string.Join(", ", FormatCustomProperties())}"
+                : string.Empty;
+            var text = string.IsNullOrWhiteSpace(message) ? "(no message)" : message;
+            _log($"[PluginTelemetry:{level}]{eventSuffix}{propsSuffix} {text}");
+
+            if (exception != null)
+            {
+                _log(exception.ToString());
+            }
+        }
+
+        private static string FormatMessage(string message, params object[] args)
+        {
+            if (string.IsNullOrEmpty(message))
+            {
+                return string.Empty;
+            }
+
+            if (args == null || args.Length == 0)
+            {
+                return message;
+            }
+
+            try
+            {
+                return string.Format(message, args);
+            }
+            catch (FormatException)
+            {
+                return message;
+            }
+        }
+
+        private static string FormatEventId(PluginEventId eventId)
+        {
+            var name = eventId.Name;
+            return string.IsNullOrWhiteSpace(name) ? eventId.Id.ToString() : $"{eventId.Id}:{name}";
+        }
+
+        private void AppendCustomProperties(IEnumerable<KeyValuePair<string, string>>? additionalCustomProperties)
+        {
+            if (additionalCustomProperties == null)
+            {
+                return;
+            }
+
+            foreach (var pair in additionalCustomProperties)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key))
+                {
+                    continue;
+                }
+
+                _customProperties[pair.Key] = pair.Value ?? string.Empty;
+            }
+        }
+
+        private IEnumerable<string> FormatCustomProperties()
+        {
+            foreach (var pair in _customProperties)
+            {
+                yield return $"{pair.Key}={pair.Value}";
+            }
+        }
+
+        private static IEnumerable<string> FormatDimensionPairs(IDictionary<string, string> dimensions)
+        {
+            foreach (var pair in dimensions)
+            {
+                yield return $"{pair.Key}={pair.Value}";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Minimal IServiceEndpointNotificationService implementation used during local debugging.
+    /// </summary>
+    internal sealed class StubServiceEndpointNotificationService : IServiceEndpointNotificationService
+    {
+        private readonly Action<string> _log;
+
+        public StubServiceEndpointNotificationService(Action<string> log)
+        {
+            _log = log;
+        }
+
+        public string Execute(EntityReference serviceEndpoint, IExecutionContext context)
+        {
+            var endpointName = serviceEndpoint?.LogicalName ?? "unknown";
+            _log($"[IServiceEndpointNotificationService] Execute → {endpointName} ({serviceEndpoint?.Id})");
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Minimal IFeatureControlService implementation; always reports feature flags as disabled.
+    /// </summary>
+    internal sealed class StubFeatureControlService : IFeatureControlService
+    {
+        private readonly Action<string> _log;
+
+        public StubFeatureControlService(Action<string> log)
+        {
+            _log = log;
+        }
+
+        public object? GetFeatureControl(string namespaceValue, string featureControlName, out Type type)
+        {
+            _log($"[IFeatureControlService] Request {namespaceValue}/{featureControlName} (returns false)");
+            type = typeof(bool);
+            return false;
         }
     }
 
@@ -237,5 +721,17 @@ namespace DataverseDebugger.Runner
         /// Gets or sets whether this context is a clone.
         /// </summary>
         public bool IsClone { get; set; }
+    }
+
+    /// <summary>
+    /// Shared no-op disposable scope used by our logger stubs.
+    /// </summary>
+    internal sealed class NoopScope : IDisposable
+    {
+        public static readonly NoopScope Instance = new NoopScope();
+
+        public void Dispose()
+        {
+        }
     }
 }

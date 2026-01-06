@@ -96,9 +96,7 @@ namespace DataverseDebugger.App.Views
             ThemeService.ThemeChanged += OnThemeChanged;
             CaptureToggle.IsChecked = _settings.CaptureEnabled;
             AutoProxyToggle.IsChecked = _settings.AutoProxy;
-            _suppressDebugToggle = true;
-            DebugToggle.IsChecked = _settings.AutoDebugMatched;
-            _suppressDebugToggle = false;
+            SetDebugToggleVisual(_settings.AutoDebugMatched);
         }
 
         private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -954,7 +952,12 @@ namespace DataverseDebugger.App.Views
                 return;
             }
 
-            DebugToggleRequested?.Invoke(DebugToggle.IsChecked == true);
+            var targetState = DebugToggle?.IsChecked == true;
+            if (targetState)
+            {
+                SetDebugToggleVisual(false);
+            }
+            DebugToggleRequested?.Invoke(targetState);
         }
 
         private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -971,9 +974,7 @@ namespace DataverseDebugger.App.Views
 
             if (e.PropertyName == nameof(CaptureSettingsModel.AutoDebugMatched))
             {
-                _suppressDebugToggle = true;
-                DebugToggle.IsChecked = _settings.AutoDebugMatched;
-                _suppressDebugToggle = false;
+                SetDebugToggleVisual(_settings.AutoDebugMatched);
             }
         }
 
@@ -985,6 +986,16 @@ namespace DataverseDebugger.App.Views
             }
 
             QueueApplyBrowserSettings();
+        }
+
+        private void SetDebugToggleVisual(bool enabled)
+        {
+            _suppressDebugToggle = true;
+            if (DebugToggle != null)
+            {
+                DebugToggle.IsChecked = enabled;
+            }
+            _suppressDebugToggle = false;
         }
 
         public void SetWebViewVisibility(bool visible)

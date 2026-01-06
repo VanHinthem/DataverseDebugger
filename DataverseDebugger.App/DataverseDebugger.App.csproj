@@ -64,8 +64,9 @@
           Condition="Exists('$(PublishDir)')">
     <PropertyGroup>
       <PublishArchiveDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\artifacts'))</PublishArchiveDir>
-      <PublishArchiveFile>$(PublishArchiveDir)\DataverseDebugger-$(ProductVersion).zip</PublishArchiveFile>
+      <PublishArchiveFile>$(PublishArchiveDir)\DataverseDebugger-$(Version).zip</PublishArchiveFile>
     </PropertyGroup>
+    <RemoveDir Directories="$(PublishArchiveDir)" Condition="Exists('$(PublishArchiveDir)')" />
     <MakeDir Directories="$(PublishArchiveDir)" />
     <Delete Files="$(PublishArchiveFile)" Condition="Exists('$(PublishArchiveFile)')" />
     <ZipDirectory SourceDirectory="$(PublishDir)" DestinationFile="$(PublishArchiveFile)" Overwrite="true" />

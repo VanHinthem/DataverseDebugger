@@ -7,6 +7,7 @@ All notable changes to this project will be documented here.
 - Implemented ILogger, IServiceEndpointNotificationService and IFeatureControlService into the plugin execution context
 ### Fixed
 - Aligned Capture, Auto Proxy and Debug toggles in Browser, REST Builder and Requests
+- Version handling
 
 
 ## [1.0.0] - 2026-01-05

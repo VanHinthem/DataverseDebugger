@@ -11,6 +11,7 @@ using DataverseDebugger.Protocol;
 using DataverseDebugger.Runner.Conversion.Converters;
 using DataverseDebugger.Runner.Conversion.Model;
 using DataverseDebugger.Runner.Conversion.Utils;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Metadata;
 using System.Globalization;
@@ -1017,12 +1018,24 @@ namespace DataverseDebugger.Runner
                         }
                     }
 
+                    var logDelegate = new Action<string>(trace.Add);
+                    var loggerFactory = new StubLoggerFactory(logDelegate);
+                    var logger = loggerFactory.CreateLogger(pluginType.FullName ?? "Plugin");
+                    var telemetryLogger = new StubPluginTelemetryLogger(logDelegate);
+                    var notificationService = new StubServiceEndpointNotificationService(logDelegate);
+                    var featureControlService = new StubFeatureControlService(logDelegate);
+
                     var services = new System.Collections.Generic.Dictionary<Type, object>
                     {
                         { typeof(ITracingService), tracingService },
                         { typeof(IOrganizationServiceFactory), orgFactory },
                         { typeof(IOrganizationService), orgService },
-                        { typeof(IPluginExecutionContext), context }
+                        { typeof(IPluginExecutionContext), context },
+                        { typeof(ILoggerFactory), loggerFactory },
+                        { typeof(ILogger), logger },
+                        { typeof(Microsoft.Xrm.Sdk.PluginTelemetry.ILogger), telemetryLogger },
+                        { typeof(IServiceEndpointNotificationService), notificationService },
+                        { typeof(IFeatureControlService), featureControlService }
                     };
 
                     var serviceProvider = new StubServiceProvider(services);

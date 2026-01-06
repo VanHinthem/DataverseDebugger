@@ -18,58 +18,89 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0 0 0 8" VerticalAlignment="Center">
-            <Button Width="90" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnClearRequests">
-                <TextBlock Text="🧹 Clear"/>
-            </Button>
-            <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnSaveRequests">
-                <TextBlock Text="💾 Save"/>
-            </Button>
-            <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnLoadRequests">
-                <TextBlock Text="📂 Load"/>
-            </Button>
+        <Grid Grid.Row="0" Margin="0 0 0 8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
 
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16 0 12 0">
-                <TextBlock Text="Matches" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
-                <ToggleButton x:Name="MatchFilterToggle"
-                              Style="{DynamicResource ModernToggleSwitch}"
-                              Background="{DynamicResource IndicatorMatchBrush}"
-                              IsChecked="True"
-                              Checked="OnRequestFilterToggleChanged"
-                              Unchecked="OnRequestFilterToggleChanged"
-                              ToolTip="Show requests that have matching plugin types"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
-                <TextBlock Text="Steps" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
-                <ToggleButton x:Name="StepFilterToggle"
-                              Style="{DynamicResource ModernToggleSwitch}"
-                              Background="{DynamicResource IndicatorStepsBrush}"
-                              IsChecked="True"
-                              Checked="OnRequestFilterToggleChanged"
-                              Unchecked="OnRequestFilterToggleChanged"
-                              ToolTip="Show requests that have candidate plugin steps"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
-                <TextBlock Text="Convertible" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
-                <ToggleButton x:Name="ConvertibleFilterToggle"
-                              Style="{DynamicResource ModernToggleSwitch}"
-                              Background="{DynamicResource IndicatorConvertibleBrush}"
-                              IsChecked="False"
-                              Checked="OnRequestFilterToggleChanged"
-                              Unchecked="OnRequestFilterToggleChanged"
-                              ToolTip="Show requests that can convert to SDK operations"/>
-            </StackPanel>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Other" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
-                <ToggleButton x:Name="NoIndicatorFilterToggle"
-                              Style="{DynamicResource ModernToggleSwitch}"
-                              Background="{DynamicResource IndicatorOtherBrush}"
-                              IsChecked="False"
-                              Checked="OnRequestFilterToggleChanged"
-                              Unchecked="OnRequestFilterToggleChanged"
-                              ToolTip="Show requests without any indicator"/>
+                <Button Width="90" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnClearRequests">
+                    <TextBlock Text="🧹 Clear"/>
+                </Button>
+                <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnSaveRequests">
+                    <TextBlock Text="💾 Save"/>
+                </Button>
+                <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnLoadRequests">
+                    <TextBlock Text="📂 Load"/>
+                </Button>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16 0 12 0">
+                    <TextBlock Text="Matches" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="MatchFilterToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Background="{DynamicResource IndicatorMatchBrush}"
+                                  IsChecked="True"
+                                  Checked="OnRequestFilterToggleChanged"
+                                  Unchecked="OnRequestFilterToggleChanged"
+                                  ToolTip="Show requests that have matching plugin types"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
+                    <TextBlock Text="Steps" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="StepFilterToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Background="{DynamicResource IndicatorStepsBrush}"
+                                  IsChecked="True"
+                                  Checked="OnRequestFilterToggleChanged"
+                                  Unchecked="OnRequestFilterToggleChanged"
+                                  ToolTip="Show requests that have candidate plugin steps"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
+                    <TextBlock Text="Convertible" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="ConvertibleFilterToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Background="{DynamicResource IndicatorConvertibleBrush}"
+                                  IsChecked="False"
+                                  Checked="OnRequestFilterToggleChanged"
+                                  Unchecked="OnRequestFilterToggleChanged"
+                                  ToolTip="Show requests that can convert to SDK operations"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Other" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="NoIndicatorFilterToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Background="{DynamicResource IndicatorOtherBrush}"
+                                  IsChecked="False"
+                                  Checked="OnRequestFilterToggleChanged"
+                                  Unchecked="OnRequestFilterToggleChanged"
+                                  ToolTip="Show requests without any indicator"/>
+                </StackPanel>
             </StackPanel>
-        </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
+                    <TextBlock Text="Capture" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="CaptureToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Checked="OnCaptureToggleChanged"
+                                  Unchecked="OnCaptureToggleChanged"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Auto Proxy" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="AutoProxyToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Checked="OnAutoProxyToggleChanged"
+                                  Unchecked="OnAutoProxyToggleChanged"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12 0 0 0">
+                    <TextBlock Text="Debug" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="DebugToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Checked="OnDebugToggleChanged"
+                                  Unchecked="OnDebugToggleChanged"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
 
         <!-- Filters removed from Requests -->
 

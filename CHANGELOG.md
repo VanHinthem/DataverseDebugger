@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.1] - 2026-01-06
+### Added
+- Implemented ILogger, IServiceEndpointNotificationService and IFeatureControlService into the plugin execution context
+### Fixed
+- Aligned Capture, Auto Proxy and Debug toggles in Browser, REST Builder and Requests
+
+
 ## [1.0.0] - 2026-01-05
 ### Added
 - Modern WPF host (`DataverseDebugger.App`) with embedded WebView2 to capture and replay Dataverse traffic inside the debugger UI.

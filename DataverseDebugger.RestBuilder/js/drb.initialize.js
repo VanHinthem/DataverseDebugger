@@ -2285,12 +2285,11 @@ DRB.InsertMainBodyContent = function () {
         <div class="drb-shell">
             <header class="drb-header">
                 <div class="drb-header__titles">
-                    <p class="drb-header__eyebrow">Dataverse Debugger</p>
                     <div class="drb-header__title-row">
                         <h1 class="drb-header__title">REST Builder</h1>
                         <span id="${DRB.DOM.ContextSpan.Id}" class="drb-context-pill">Detecting context...</span>
                     </div>
-                    <p class="drb-header__subtitle">Compose, organize, and execute Dataverse calls without leaving the debugger workspace.</p>
+                    <p class="drb-header__subtitle">Compose, organize, and execute Dataverse calls.</p>
                 </div>
                 <div class="drb-header__actions">
                     <div class="drb-header__badge">

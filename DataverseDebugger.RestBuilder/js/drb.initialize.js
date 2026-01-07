@@ -2291,7 +2291,6 @@ DRB.InsertMainBodyContent = function () {
                         <span id="${DRB.DOM.ContextSpan.Id}" class="drb-context-pill">Detecting context...</span>
                     </div>
                     <p class="drb-header__subtitle">Compose, organize, and execute Dataverse calls without leaving the debugger workspace.</p>
-                    <p class="drb-header__subtitle">RB build 2025-02-11</p>
                 </div>
                 <div class="drb-header__actions">
                     <div class="drb-header__badge">

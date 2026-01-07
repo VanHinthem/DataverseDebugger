@@ -279,7 +279,7 @@ DRB.DefineOperations = function () {
     var requestControls = $("<div>", { class: "drb-request-controls" });
     requestControls.append(DRB.UI.CreateSpan(DRB.DOM.RequestType.Span.Id, DRB.DOM.RequestType.Span.Name));
     requestControls.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.RequestType.Dropdown.Id));
-    var btn_executeRequest = DRB.UI.CreateButton("btn_execute_request", "Execute", "btn-danger", function () {
+    var btn_executeRequest = DRB.UI.CreateButton("btn_execute_request", "&#x25B6; Execute", "btn-danger", function () {
         DRB.GenerateCode.Start();
         try {
             var fetchEditor = DRB.Settings.Editors["code_fetchapi"];

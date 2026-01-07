@@ -26,13 +26,13 @@
 
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Width="90" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnClearRequests">
-                    <TextBlock Text="Clear"/>
+                    <TextBlock Text="&#x1F9F9; Clear"/>
                 </Button>
                 <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnSaveRequests">
-                    <TextBlock Text="Save"/>
+                    <TextBlock Text="&#x1F4BE; Save"/>
                 </Button>
                 <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnLoadRequests">
-                    <TextBlock Text="Load"/>
+                    <TextBlock Text="&#x1F4C2; Load"/>
                 </Button>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16 0 12 0">

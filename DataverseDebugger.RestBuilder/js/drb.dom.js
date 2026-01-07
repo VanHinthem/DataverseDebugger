@@ -25,8 +25,8 @@ DRB.DOM.Collection = {};
 DRB.DOM.Collection.Menu = { Id: "mnu_file" };
 DRB.DOM.Collection.LoadInput = { Id: "inp_loadfile" };
 DRB.DOM.Collection.NewButton = { Id: "btn_newcollection", Name: "New", Class: "dropdown-item" };
-DRB.DOM.Collection.LoadButton = { Id: "btn_loadcollection", Name: "Load", Class: "dropdown-item" };
-DRB.DOM.Collection.SaveButton = { Id: "btn_savecollection", Name: "Save", Class: "dropdown-item" };
+DRB.DOM.Collection.LoadButton = { Id: "btn_loadcollection", Name: "&#x21E9; Load", Class: "dropdown-item" };
+DRB.DOM.Collection.SaveButton = { Id: "btn_savecollection", Name: "&#x21E7; Save", Class: "dropdown-item" };
 
 // Get Access Token (BE)
 DRB.DOM.AccessToken = {}

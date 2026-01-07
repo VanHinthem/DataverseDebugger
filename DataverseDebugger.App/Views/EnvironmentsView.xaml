@@ -38,19 +38,19 @@
                 </ListBox>
                 <StackPanel Orientation="Horizontal" Margin="0 8 0 0">
                     <Button Width="90" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnAddClick">
-                        <TextBlock Text="Add"/>
+                        <TextBlock Text="&#x2795; Add"/>
                     </Button>
                     <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnSaveClick">
-                        <TextBlock Text="Save"/>
+                        <TextBlock Text="&#x1F4BE; Save"/>
                     </Button>
                     <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnDeleteClick">
-                        <TextBlock Text="Delete"/>
+                        <TextBlock Text="&#x1F5D1; Delete"/>
                     </Button>
                     <Button Width="110" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnActivateClick">
-                        <TextBlock Text="Activate"/>
+                        <TextBlock Text="&#x26A1; Activate"/>
                     </Button>
                     <Button Width="120" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnDeactivateClick">
-                        <TextBlock Text="Deactivate"/>
+                        <TextBlock Text="&#x23F9; Deactivate"/>
                     </Button>
                 </StackPanel>
             </StackPanel>
@@ -79,10 +79,10 @@
                     <TextBlock Text="Plugin assemblies" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 4 0 4">
                         <Button Width="100" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnAddAssemblyClick">
-                            <TextBlock Text="Add DLL"/>
+                            <TextBlock Text="&#x2795; Add DLL"/>
                         </Button>
                         <Button Width="90" Height="26" Margin="6 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnRemoveAssemblyClick">
-                            <TextBlock Text="Remove"/>
+                            <TextBlock Text="&#x1F5D1; Remove"/>
                         </Button>
                     </StackPanel>
                     <ListBox x:Name="AssemblyList" Height="80"
@@ -116,11 +116,11 @@
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0 4 0 4">
                         <Button Width="90" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnSignInClick">
-                            <TextBlock Text="Sign in"/>
-                        </Button>
+                        <TextBlock Text="&#x1F511; Sign in"/>
+                    </Button>
                         <Button Width="95" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnSignOutClick">
-                            <TextBlock Text="Sign out"/>
-                        </Button>
+                        <TextBlock Text="&#x1F6AA; Sign out"/>
+                    </Button>
                         <TextBlock x:Name="AuthStatusText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="8 6 0 0"/>
                     </StackPanel>
                     <Separator Margin="0 8 0 8"/>
@@ -134,7 +134,7 @@
                         <TextBlock x:Name="MetadataStatusText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <Button Width="170" Height="26" Margin="0 4 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnRefreshMetadataClick">
-                        <TextBlock Text="Refresh metadata"/>
+                        <TextBlock Text="&#x1F504; Refresh metadata"/>
                     </Button>
                     <Separator Margin="0 8 0 8"/>
                     <TextBlock Text="WebView cache" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
@@ -147,7 +147,7 @@
                         <TextBlock x:Name="WebViewCacheSizeText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <Button Width="160" Height="26" Margin="0 4 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnClearWebViewCacheClick">
-                        <TextBlock Text="Clear cache"/>
+                        <TextBlock Text="&#x1F9F9; Clear cache"/>
                     </Button>
                     <Separator Margin="0 8 0 8"/>
                     <TextBlock Text="Plugin catalog" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
@@ -160,7 +160,7 @@
                         <TextBlock x:Name="CatalogStatusText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <Button Width="170" Height="26" Margin="0 4 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnRefreshCatalogClick">
-                        <TextBlock Text="Refresh catalog"/>
+                        <TextBlock Text="&#x1F504; Refresh catalog"/>
                     </Button>
                 </StackPanel>
             </ScrollViewer>

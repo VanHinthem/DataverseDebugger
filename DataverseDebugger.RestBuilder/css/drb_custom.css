@@ -389,6 +389,7 @@ body[data-drb-theme="light"] .drb-card {
 .drb-tree-actions .btn {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     border-radius: var(--drb-radius-sm);
     border: 1px solid var(--drb-border);
     background: var(--drb-panel-soft);
@@ -478,8 +479,14 @@ body[data-drb-theme="light"] .drb-card {
 }
 
 .drb-request-controls .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     min-height: 24px;
     padding: 4px 12px;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.02em;
 }
 
 .dropdown-menu {

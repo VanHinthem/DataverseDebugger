@@ -54,8 +54,8 @@ DRB.DOM.Collection = {};
 DRB.DOM.Collection.Menu = { Id: "mnu_file" };
 DRB.DOM.Collection.LoadInput = { Id: "inp_loadfile" };
 DRB.DOM.Collection.NewButton = { Id: "btn_newcollection", Name: "New", Class: "dropdown-item" };
-DRB.DOM.Collection.LoadButton = { Id: "btn_loadcollection", Name: "Load", Class: "dropdown-item" };
-DRB.DOM.Collection.SaveButton = { Id: "btn_savecollection", Name: "Save", Class: "dropdown-item" };
+DRB.DOM.Collection.LoadButton = { Id: "btn_loadcollection", Name: "&#x21E9; Load", Class: "dropdown-item" };
+DRB.DOM.Collection.SaveButton = { Id: "btn_savecollection", Name: "&#x21E7; Save", Class: "dropdown-item" };
 
 // Get Access Token (BE)
 DRB.DOM.AccessToken = {}
@@ -19026,7 +19026,7 @@ DRB.DefineOperations = function () {
     var requestControls = $("<div>", { class: "drb-request-controls" });
     requestControls.append(DRB.UI.CreateSpan(DRB.DOM.RequestType.Span.Id, DRB.DOM.RequestType.Span.Name));
     requestControls.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.RequestType.Dropdown.Id));
-    var btn_executeRequest = DRB.UI.CreateButton("btn_execute_request", "Execute", "btn-danger", function () {
+    var btn_executeRequest = DRB.UI.CreateButton("btn_execute_request", "&#x25B6; Execute", "btn-danger", function () {
         DRB.GenerateCode.Start();
         try {
             var fetchEditor = DRB.Settings.Editors["code_fetchapi"];

@@ -270,7 +270,7 @@
                                     <Button x:Name="DebugStepButton" Width="160" Click="OnDebugMatchedStep" IsEnabled="False"
                                             Style="{DynamicResource ModernToolbarButton}"
                                             ToolTip="Force execution of matched plugin steps in the emulator for debugging.">
-                                        <TextBlock Text="Debug step"/>
+                                        <TextBlock Text="&#x1F41E; Debug step"/>
                                     </Button>
                                 </StackPanel>
                             </StackPanel>
@@ -305,12 +305,12 @@
                                     <Button x:Name="SendToRunnerButton" Width="200" HorizontalAlignment="Left" Click="OnSendToRunner"
                                             Style="{DynamicResource ModernToolbarButton}"
                                             ToolTip="Proxy the captured request through the runner and show the response.">
-                                        <TextBlock Text="Send to runner"/>
+                                        <TextBlock Text="&#x1F680; Send to runner"/>
                                     </Button>
                                     <Button x:Name="SendToBuilderButton" Width="200" Margin="8 0 0 0" HorizontalAlignment="Left" Click="OnSendToBuilder"
                                             Style="{DynamicResource ModernToolbarButton}"
                                             ToolTip="Send the captured request to the REST Builder for further editing.">
-                                        <TextBlock Text="Send to builder"/>
+                                        <TextBlock Text="&#x1F6E0; Send to builder"/>
                                     </Button>
                                 </StackPanel>
                                 <TextBox x:Name="RunnerResponseText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Runner response: -" TextWrapping="Wrap" Background="Transparent" BorderThickness="0" IsReadOnly="True" TextBoxBase.IsReadOnlyCaretVisible="True" Margin="0 0 0 6"/>

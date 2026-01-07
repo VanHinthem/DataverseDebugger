@@ -221,6 +221,12 @@ DRB.DOM.FilterBy = {};
 DRB.DOM.FilterBy.MainDiv = { Id: "div_main_fb", Class: "mapping-container" };
 DRB.DOM.FilterBy.MainSpan = { Id: "span_main_fb", Name: "<b>Filter By</b>" };
 DRB.DOM.FilterBy.StartButton = { Id: "btn_startfb_", Name: "Start", Class: "btn-primary" };
+DRB.DOM.FilterBy.CapturedFilterDiv = { Id: "div_capturedfilter", Class: "alert alert-info captured-filter" };
+DRB.DOM.FilterBy.CapturedFilterSpan = { Id: "span_capturedfilter", Name: "Captured $filter (read-only)" };
+DRB.DOM.FilterBy.CapturedFilterHint = { Id: "span_capturedfilter_hint", Name: "Captured filters are applied automatically until Filter By is configured." };
+DRB.DOM.FilterBy.CapturedFilterText = { Id: "txt_capturedfilter", Class: "form-control captured-filter-textarea" };
+DRB.DOM.FilterBy.CapturedFilterCopyButton = { Id: "btn_capturedfilter_copy", Name: "Copy filter", Class: "btn-secondary btn-sm" };
+DRB.DOM.FilterBy.CapturedFilterRemoveButton = { Id: "btn_capturedfilter_clear", Name: "Remove captured filter", Class: "btn-outline-secondary btn-sm" };
 // Filter Groups
 DRB.DOM.FilterGroups = {};
 DRB.DOM.FilterGroups.MainDiv = { Id: "div_main_fg_", Class: "mapping-container" };

@@ -634,11 +634,575 @@ DRB.Logic.RetrieveMultiple.ConfigureFilterBy = function () {
     var metadataPath = "filterCriteria";
     $("#" + DRB.DOM.FilterGroups.DivChoice.Id + metadataPath).append(DRB.UI.CreateButton(DRB.DOM.FilterBy.StartButton.Id, DRB.DOM.FilterBy.StartButton.Name, DRB.DOM.FilterBy.StartButton.Class, DRB.Logic.RetrieveMultiple.StartAddFilter, "FilterGroups", "FilterColumns", metadataPath));
 
-    var filterCriteria = JSON.parse(JSON.stringify(DRB.Metadata.CurrentNode.data.configuration.filterCriteria));
+    DRB.Metadata.CurrentNode.data.configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+    var configuration = DRB.Metadata.CurrentNode.data.configuration;
+    if (!DRB.Utilities.HasValue(configuration.filterCriteria)) { configuration.filterCriteria = {}; }
+    DRB.Logic.RetrieveMultiple.TryHydrateCapturedFilterCriteria();
+
+    var filterCriteriaSource = DRB.Utilities.HasValue(configuration.filterCriteria) ? configuration.filterCriteria : {};
+    var filterCriteria = {};
+    try {
+        filterCriteria = JSON.parse(JSON.stringify(filterCriteriaSource));
+    } catch {
+        filterCriteria = {};
+    }
+
     DRB.Metadata.filterCriteria = {};
-    DRB.Metadata.CurrentNode.data.configuration.filterCriteria = {};
+    configuration.filterCriteria = {};
     DRB.Logic.RetrieveMultiple.ParseFilterCriteria(filterCriteria, metadataPath);
+    DRB.Logic.RetrieveMultiple.RenderCapturedFilterNotice();
 }
+
+DRB.Logic.RetrieveMultiple.RenderCapturedFilterNotice = function () {
+    var filterContainer = $("#" + DRB.DOM.FilterBy.MainDiv.Id);
+    if (filterContainer.length === 0) { return; }
+    $("#" + DRB.DOM.FilterBy.CapturedFilterDiv.Id).remove();
+
+    if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return; }
+    var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+    var overrides = configuration.capturedQueryOverrides || {};
+    if (!DRB.Utilities.HasValue(overrides.filter)) { return; }
+
+    if (DRB.Utilities.HasValue(configuration.filterCriteria) && configuration.filterCriteria.filterType === "fields") { return; }
+    if (DRB.Utilities.HasValue(configuration.filterCriteria) && configuration.filterCriteria.filterType === "groups") { return; }
+
+    var capturedDiv = DRB.UI.CreateEmptyDiv(DRB.DOM.FilterBy.CapturedFilterDiv.Id, DRB.DOM.FilterBy.CapturedFilterDiv.Class);
+    capturedDiv.append(DRB.UI.CreateSpan(DRB.DOM.FilterBy.CapturedFilterSpan.Id, DRB.DOM.FilterBy.CapturedFilterSpan.Name));
+    capturedDiv.append(DRB.UI.CreateSpacer());
+    capturedDiv.append(DRB.UI.CreateSpan(DRB.DOM.FilterBy.CapturedFilterHint.Id, DRB.DOM.FilterBy.CapturedFilterHint.Name, null, "text-muted small"));
+    capturedDiv.append(DRB.UI.CreateSpacer());
+    var textarea = DRB.UI.CreateTextArea(DRB.DOM.FilterBy.CapturedFilterText.Id, DRB.DOM.FilterBy.CapturedFilterText.Class);
+    textarea.attr("rows", 4);
+    textarea.prop("readonly", true);
+    textarea.val(overrides.filter);
+    capturedDiv.append(textarea);
+    capturedDiv.append(DRB.UI.CreateSpacer());
+
+    var capturedActions = DRB.UI.CreateEmptyDiv(DRB.DOM.FilterBy.CapturedFilterDiv.Id + "_actions", "captured-filter-actions");
+    capturedActions.append(DRB.UI.CreateButton(DRB.DOM.FilterBy.CapturedFilterCopyButton.Id, DRB.DOM.FilterBy.CapturedFilterCopyButton.Name, DRB.DOM.FilterBy.CapturedFilterCopyButton.Class, DRB.Logic.RetrieveMultiple.CopyCapturedFilterToClipboard));
+    capturedActions.append(DRB.UI.CreateButton(DRB.DOM.FilterBy.CapturedFilterRemoveButton.Id, DRB.DOM.FilterBy.CapturedFilterRemoveButton.Name, DRB.DOM.FilterBy.CapturedFilterRemoveButton.Class, DRB.Logic.RetrieveMultiple.ClearCapturedFilterOverride));
+    capturedDiv.append(capturedActions);
+
+    filterContainer.prepend(capturedDiv);
+};
+
+DRB.Logic.RetrieveMultiple.CopyCapturedFilterToClipboard = function () {
+    var textarea = $("#" + DRB.DOM.FilterBy.CapturedFilterText.Id);
+    if (textarea.length === 0) { return; }
+    var filterValue = textarea.val();
+    if (!DRB.Utilities.HasValue(filterValue)) { return; }
+    DRB.Logic.CopyCodeToClipboard(filterValue);
+    DRB.UI.ShowMessage("Captured $filter copied to Clipboard");
+    setTimeout(function () { DRB.UI.HideLoading(); }, DRB.Settings.TimeoutDelay);
+};
+
+DRB.Logic.RetrieveMultiple.ClearCapturedFilterOverride = function () {
+    if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return; }
+    var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+    if (!DRB.Utilities.HasValue(configuration.capturedQueryOverrides)) { configuration.capturedQueryOverrides = {}; }
+    delete configuration.capturedQueryOverrides.filter;
+    $("#" + DRB.DOM.FilterBy.CapturedFilterDiv.Id).remove();
+};
+
+DRB.Logic.RetrieveMultiple.TryHydrateCapturedFilterCriteria = function () {
+    if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return false; }
+    var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+    if (!DRB.Utilities.HasValue(configuration.capturedQueryOverrides)) { return false; }
+    if (DRB.Utilities.HasValue(configuration.filterCriteria) && DRB.Utilities.HasValue(configuration.filterCriteria.filterType)) { return false; }
+    var overrideFilter = configuration.capturedQueryOverrides.filter;
+    if (!DRB.Utilities.HasValue(overrideFilter)) { return false; }
+    if (!Array.isArray(DRB.Metadata.CurrentColumns) || DRB.Metadata.CurrentColumns.length === 0) { return false; }
+    var parsedCriteria = DRB.Logic.RetrieveMultiple.ParseCapturedFilterToCriteria(overrideFilter);
+    if (!DRB.Utilities.HasValue(parsedCriteria)) { return false; }
+    configuration.filterCriteria = parsedCriteria;
+    delete configuration.capturedQueryOverrides.filter;
+    return true;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedFilterToCriteria = function (filterText) {
+    if (!DRB.Utilities.HasValue(filterText)) { return null; }
+    var working = filterText.trim();
+    if (working.length === 0) { return null; }
+    if (working.indexOf('$filter=') === 0) { working = working.substring(8).trim(); }
+    var ast = DRB.Logic.RetrieveMultiple.ParseCapturedFilterExpression(working);
+    if (!DRB.Utilities.HasValue(ast)) { return null; }
+    try {
+        return DRB.Logic.RetrieveMultiple.ConvertCapturedAstToCriteria(ast);
+    } catch (parseError) {
+        console.warn('DRB captured filter parser failed', parseError);
+        return null;
+    }
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedFilterExpression = function (expression) {
+    if (!DRB.Utilities.HasValue(expression)) { return null; }
+    var trimmed = DRB.Logic.RetrieveMultiple.TrimCapturedParentheses(expression.trim());
+    if (trimmed.length === 0) { return null; }
+    var splitResult = DRB.Logic.RetrieveMultiple.SplitCapturedFilterExpression(trimmed);
+    if (!splitResult || splitResult.segments.length === 0) { return null; }
+    if (splitResult.segments.length === 1) {
+        var condition = DRB.Logic.RetrieveMultiple.ParseCapturedFilterCondition(splitResult.segments[0]);
+        if (!condition) { return null; }
+        return { type: "condition", condition: condition };
+    }
+    var logic = splitResult.operators[0] || "and";
+    var inconsistentOperator = splitResult.operators.some(function (op) { return op !== logic; });
+    if (inconsistentOperator === true) { return null; }
+    var children = [];
+    var parseFailed = false;
+    splitResult.segments.forEach(function (segment) {
+        if (parseFailed === true || !DRB.Utilities.HasValue(segment)) { return; }
+        var childAst = DRB.Logic.RetrieveMultiple.ParseCapturedFilterExpression(segment);
+        if (!childAst) { parseFailed = true; return; }
+        children.push(childAst);
+    });
+    if (parseFailed === true || children.length === 0) { return null; }
+    if (children.length === 1) { return children[0]; }
+    return { type: "group", logic: logic, children: children };
+};
+
+DRB.Logic.RetrieveMultiple.SplitCapturedFilterExpression = function (expression) {
+    var result = { segments: [], operators: [] };
+    if (!DRB.Utilities.HasValue(expression)) { return result; }
+    var depth = 0;
+    var inQuotes = false;
+    var buffer = '';
+    for (var i = 0; i < expression.length; i++) {
+        var char = expression[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < expression.length && expression[i + 1] === "'") {
+                buffer += "''";
+                i++;
+                continue;
+            }
+            inQuotes = !inQuotes;
+            buffer += char;
+            continue;
+        }
+        if (inQuotes === false) {
+            if (char === '(') { depth++; buffer += char; continue; }
+            if (char === ')') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+            if (depth === 0) {
+                var remaining = expression.substring(i);
+                var remainingLower = remaining.toLowerCase();
+                if (remainingLower.indexOf(' and ') === 0) {
+                    if (buffer.trim().length > 0) { result.segments.push(buffer.trim()); }
+                    result.operators.push('and');
+                    buffer = '';
+                    i += 4;
+                    continue;
+                }
+                if (remainingLower.indexOf(' or ') === 0) {
+                    if (buffer.trim().length > 0) { result.segments.push(buffer.trim()); }
+                    result.operators.push('or');
+                    buffer = '';
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        buffer += char;
+    }
+    if (buffer.trim().length > 0) { result.segments.push(buffer.trim()); }
+    return result;
+};
+
+DRB.Logic.RetrieveMultiple.TrimCapturedParentheses = function (expression) {
+    var working = expression;
+    var changed = true;
+    while (changed === true) {
+        changed = false;
+        if (working.startsWith('(') && working.endsWith(')')) {
+            var depth = 0;
+            var inQuotes = false;
+            var removable = true;
+            for (var i = 0; i < working.length; i++) {
+                var char = working[i];
+                if (char === "'") {
+                    if (inQuotes === true && i + 1 < working.length && working[i + 1] === "'") { i++; continue; }
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+                if (inQuotes === true) { continue; }
+                if (char === '(') { depth++; }
+                if (char === ')') {
+                    depth--;
+                    if (depth === 0 && i < working.length - 1) { removable = false; break; }
+                }
+            }
+            if (removable === true && depth === 0) {
+                working = working.substring(1, working.length - 1).trim();
+                changed = true;
+            }
+        }
+    }
+    return working;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedFilterCondition = function (segment) {
+    if (!DRB.Utilities.HasValue(segment)) { return null; }
+    var cleaned = DRB.Logic.RetrieveMultiple.TrimCapturedParentheses(segment.trim());
+    if (cleaned.length === 0) { return null; }
+    var dynamicsCondition = DRB.Logic.RetrieveMultiple.ParseCapturedMicrosoftFunction(cleaned);
+    if (dynamicsCondition) { return dynamicsCondition; }
+    var simpleFunction = DRB.Logic.RetrieveMultiple.ParseCapturedSimpleFunction(cleaned);
+    if (simpleFunction) { return simpleFunction; }
+    return DRB.Logic.RetrieveMultiple.ParseCapturedBinaryCondition(cleaned);
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedMicrosoftFunction = function (segment) {
+    var match = segment.match(/^Microsoft\\.Dynamics\\.CRM\\.([^\\(]+)\\((.*)\\)$/i);
+    if (!match) { return null; }
+    var operator = match[1].trim();
+    var argsText = match[2];
+    var args = DRB.Logic.RetrieveMultiple.ParseCapturedFunctionArguments(argsText);
+    if (!DRB.Utilities.HasValue(args.PropertyName)) { return null; }
+    var fieldPath = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args.PropertyName, true);
+    var condition = { fieldPath: fieldPath, operator: operator, requiredValue: false };
+    if (DRB.Utilities.HasValue(args.PropertyValues)) {
+        var parsedArray = DRB.Logic.RetrieveMultiple.ParseCapturedArrayLiteral(args.PropertyValues);
+        if (operator === 'Between' || operator === 'NotBetween') {
+            if (parsedArray.length > 0) { condition.value = parsedArray[0]; }
+            if (parsedArray.length > 1) { condition.value2 = parsedArray[1]; }
+            condition.requiredValue = true;
+        } else {
+            condition.value = parsedArray;
+            condition.requiredValue = true;
+        }
+    }
+    if (DRB.Utilities.HasValue(args.PropertyValue)) {
+        condition.value = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args.PropertyValue);
+        condition.requiredValue = true;
+    }
+    if (DRB.Utilities.HasValue(args.PropertyValue1)) {
+        condition.value = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args.PropertyValue1);
+        condition.requiredValue = true;
+    }
+    if (DRB.Utilities.HasValue(args.PropertyValue2)) {
+        condition.value2 = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args.PropertyValue2);
+        condition.requiredValue = true;
+    }
+    return condition;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedFunctionArguments = function (argsText) {
+    var result = {};
+    if (!DRB.Utilities.HasValue(argsText)) { return result; }
+    var buffer = '';
+    var depth = 0;
+    var inQuotes = false;
+    var entries = [];
+    for (var i = 0; i < argsText.length; i++) {
+        var char = argsText[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < argsText.length && argsText[i + 1] === "'") { buffer += "''"; i++; continue; }
+            inQuotes = !inQuotes;
+            buffer += char;
+            continue;
+        }
+        if (inQuotes === false) {
+            if (char === '[') { depth++; buffer += char; continue; }
+            if (char === ']') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+            if (char === ',' && depth === 0) {
+                if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+                buffer = '';
+                continue;
+            }
+        }
+        buffer += char;
+    }
+    if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+    entries.forEach(function (entry) {
+        var splitterIndex = entry.indexOf('=');
+        if (splitterIndex === -1) { return; }
+        var key = entry.substring(0, splitterIndex).trim();
+        var value = entry.substring(splitterIndex + 1).trim();
+        result[key] = value;
+    });
+    return result;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedArrayLiteral = function (valueText) {
+    var items = [];
+    if (!DRB.Utilities.HasValue(valueText)) { return items; }
+    var trimmed = valueText.trim();
+    if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) { return items; }
+    var inner = trimmed.substring(1, trimmed.length - 1);
+    var buffer = '';
+    var inQuotes = false;
+    for (var i = 0; i < inner.length; i++) {
+        var char = inner[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < inner.length && inner[i + 1] === "'") { buffer += "''"; i++; continue; }
+            inQuotes = !inQuotes;
+            buffer += char;
+            continue;
+        }
+        if (char === ',' && inQuotes === false) {
+            if (buffer.trim().length > 0) { items.push(DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(buffer.trim())); }
+            buffer = '';
+            continue;
+        }
+        buffer += char;
+    }
+    if (buffer.trim().length > 0) { items.push(DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(buffer.trim())); }
+    return items;
+};
+
+DRB.Logic.RetrieveMultiple.SplitCapturedSimpleArguments = function (argsText) {
+    var args = [];
+    if (!DRB.Utilities.HasValue(argsText)) { return args; }
+    var buffer = '';
+    var depth = 0;
+    var inQuotes = false;
+    for (var i = 0; i < argsText.length; i++) {
+        var char = argsText[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < argsText.length && argsText[i + 1] === "'") { buffer += "''"; i++; continue; }
+            inQuotes = !inQuotes;
+            buffer += char;
+            continue;
+        }
+        if (inQuotes === false) {
+            if (char === '(') { depth++; buffer += char; continue; }
+            if (char === ')') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+            if (char === ',' && depth === 0) {
+                if (buffer.trim().length > 0) { args.push(buffer.trim()); }
+                buffer = '';
+                continue;
+            }
+        }
+        buffer += char;
+    }
+    if (buffer.trim().length > 0) { args.push(buffer.trim()); }
+    return args;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedSimpleFunction = function (segment) {
+    var match = segment.match(/^([^\\(]+)\\((.*)\\)$/);
+    if (!match) { return null; }
+    var operator = match[1].trim();
+    var argsText = match[2];
+    var args = DRB.Logic.RetrieveMultiple.SplitCapturedSimpleArguments(argsText);
+    if (args.length === 0) { return null; }
+    var condition = { fieldPath: args[0].trim(), operator: operator, requiredValue: args.length > 1 };
+    if (args.length > 1) { condition.value = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args[1]); }
+    if (args.length > 2) { condition.value2 = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args[2]); }
+    return condition;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedBinaryCondition = function (segment) {
+    var binary = DRB.Logic.RetrieveMultiple.FindCapturedBinaryOperator(segment);
+    if (!binary) { return null; }
+    var condition = {
+        fieldPath: binary.left.trim(),
+        operator: binary.operator,
+        requiredValue: binary.right.toLowerCase() !== 'null'
+    };
+    if (condition.requiredValue === true) {
+        condition.value = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(binary.right);
+    }
+    return condition;
+};
+
+DRB.Logic.RetrieveMultiple.FindCapturedBinaryOperator = function (segment) {
+    var operators = [' eq ', ' ne ', ' gt ', ' ge ', ' lt ', ' le '];
+    var depth = 0;
+    var inQuotes = false;
+    var lowerSegment = segment.toLowerCase();
+    for (var i = 0; i < segment.length; i++) {
+        var char = segment[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < segment.length && segment[i + 1] === "'") { i++; continue; }
+            inQuotes = !inQuotes;
+            continue;
+        }
+        if (inQuotes === true) { continue; }
+        if (char === '(') { depth++; continue; }
+        if (char === ')') { depth = Math.max(0, depth - 1); continue; }
+        if (depth !== 0) { continue; }
+        for (var opIndex = 0; opIndex < operators.length; opIndex++) {
+            var op = operators[opIndex];
+            if (lowerSegment.substring(i).indexOf(op) === 0) {
+                var left = segment.substring(0, i).trim();
+                var right = segment.substring(i + op.length).trim();
+                if (left.length === 0 || right.length === 0) { return null; }
+                return { left: left, operator: op.trim(), right: right };
+            }
+        }
+    }
+    return null;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedLiteral = function (valueText, skipDecode) {
+    if (!DRB.Utilities.HasValue(valueText)) { return null; }
+    var trimmed = valueText.trim();
+    if (trimmed.length === 0) { return null; }
+    var lowered = trimmed.toLowerCase();
+    if (lowered === 'null') { return null; }
+    if (lowered === 'true') { return true; }
+    if (lowered === 'false') { return false; }
+    if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+        var inner = trimmed.substring(1, trimmed.length - 1);
+        inner = inner.replace(/''/g, "'");
+        if (skipDecode !== true) {
+            try { inner = decodeURIComponent(inner); } catch { }
+        }
+        return inner;
+    }
+    if (!isNaN(Number(trimmed))) {
+        if (trimmed.indexOf('.') > -1) { return parseFloat(trimmed); }
+        return parseInt(trimmed, 10);
+    }
+    return trimmed;
+};
+
+DRB.Logic.RetrieveMultiple.ResolveCapturedFieldMetadata = function (fieldPath) {
+    if (!DRB.Utilities.HasValue(fieldPath)) { return null; }
+    var cleanedPath = fieldPath.trim();
+    var relationshipInfo = null;
+    var column = null;
+    var managedValueSuffix = false;
+    var manyToOne = Array.isArray(DRB.Metadata.CurrentManyToOne) ? DRB.Metadata.CurrentManyToOne : [];
+    if (cleanedPath.indexOf('/') === -1) {
+        if (cleanedPath.toLowerCase().endsWith('/value')) {
+            cleanedPath = cleanedPath.substring(0, cleanedPath.length - 6);
+            managedValueSuffix = true;
+        }
+        column = DRB.Logic.RetrieveMultiple.FindCapturedColumn(DRB.Metadata.CurrentColumns, cleanedPath);
+    } else {
+        var pathParts = cleanedPath.split('/');
+        var navigation = pathParts.shift();
+        var columnPath = pathParts.join('/');
+        if (columnPath.toLowerCase().endsWith('/value')) {
+            columnPath = columnPath.substring(0, columnPath.length - 6);
+            managedValueSuffix = true;
+        }
+        var relationship = DRB.Utilities.GetRecordByProperty(manyToOne, 'NavigationProperty', navigation);
+        if (!DRB.Utilities.HasValue(relationship)) { return null; }
+        var targetTable = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, relationship.TargetTable);
+        if (!DRB.Utilities.HasValue(targetTable)) { return null; }
+        column = DRB.Logic.RetrieveMultiple.FindCapturedColumn(targetTable.Columns, columnPath);
+        if (!DRB.Utilities.HasValue(column)) { return null; }
+        relationshipInfo = {
+            schemaName: relationship.SchemaName,
+            navigationProperty: relationship.NavigationProperty,
+            navigationAttribute: relationship.NavigationAttribute,
+            targetEntity: relationship.TargetTable,
+            targetEntityLabel: relationship.TargetTableName || relationship.TargetTable,
+            targetEntityPrimaryIdField: targetTable.PrimaryIdAttribute
+        };
+    }
+    if (!DRB.Utilities.HasValue(column)) { return null; }
+    if (managedValueSuffix === true && column.AttributeType !== 'ManagedProperty') { return null; }
+    return { column: column, relationship: relationshipInfo };
+};
+
+DRB.Logic.RetrieveMultiple.FindCapturedColumn = function (columns, name) {
+    if (!Array.isArray(columns)) { return null; }
+    var comparer = name.toLowerCase();
+    var column = DRB.Utilities.GetRecordByProperty(columns, 'ODataName', name);
+    if (DRB.Utilities.HasValue(column)) { return column; }
+    for (var i = 0; i < columns.length; i++) {
+        var current = columns[i];
+        if (!DRB.Utilities.HasValue(current)) { continue; }
+        if (DRB.Utilities.HasValue(current.ODataName) && current.ODataName.toLowerCase() === comparer) { return current; }
+        if (DRB.Utilities.HasValue(current.LogicalName) && current.LogicalName.toLowerCase() === comparer) { return current; }
+    }
+    return null;
+};
+
+DRB.Logic.RetrieveMultiple.ConvertCapturedAstToCriteria = function (astNode) {
+    if (!DRB.Utilities.HasValue(astNode)) { return null; }
+    if (astNode.type === 'condition') {
+        var singleField = DRB.Logic.RetrieveMultiple.ConvertCapturedConditionToFilterField(astNode.condition);
+        if (!singleField) { return null; }
+        return { filterType: 'fields', filterFieldsLogic: 'and', filterFields: [singleField] };
+    }
+    if (astNode.type === 'group') {
+        var allConditions = astNode.children.every(function (child) { return child.type === 'condition'; });
+        if (allConditions === true) {
+            var fields = [];
+            for (var i = 0; i < astNode.children.length; i++) {
+                var field = DRB.Logic.RetrieveMultiple.ConvertCapturedConditionToFilterField(astNode.children[i].condition);
+                if (!field) { return null; }
+                fields.push(field);
+            }
+            return { filterType: 'fields', filterFieldsLogic: astNode.logic || 'and', filterFields: fields };
+        }
+        var groups = [];
+        for (var childIndex = 0; childIndex < astNode.children.length; childIndex++) {
+            var criteria = DRB.Logic.RetrieveMultiple.ConvertCapturedAstToCriteria(astNode.children[childIndex]);
+            if (!criteria) { return null; }
+            groups.push(criteria);
+        }
+        if (groups.length === 1) { return groups[0]; }
+        return { filterType: 'groups', filterGroupsLogic: astNode.logic || 'and', filterGroups: groups };
+    }
+    return null;
+};
+
+DRB.Logic.RetrieveMultiple.ConvertCapturedConditionToFilterField = function (condition) {
+    if (!DRB.Utilities.HasValue(condition) || !DRB.Utilities.HasValue(condition.fieldPath)) { return null; }
+    var metadata = DRB.Logic.RetrieveMultiple.ResolveCapturedFieldMetadata(condition.fieldPath);
+    if (!metadata) { return null; }
+    var column = metadata.column;
+    var filterField = {
+        logicalName: column.LogicalName,
+        schemaName: column.SchemaName,
+        label: column.Name,
+        type: column.AttributeType,
+        oDataName: column.ODataName,
+        operator: condition.operator,
+        requiredValue: condition.requiredValue === true,
+        value: null
+    };
+    if (metadata.relationship) { filterField.relationship = metadata.relationship; }
+    if (column.AttributeType === 'DateTime' && DRB.Utilities.HasValue(column.AdditionalProperties) && DRB.Utilities.HasValue(column.AdditionalProperties.DateTimeBehavior)) {
+        filterField.dateTimeBehavior = column.AdditionalProperties.DateTimeBehavior;
+    }
+    if (condition.requiredValue === true && condition.value !== undefined) {
+        filterField.value = DRB.Logic.RetrieveMultiple.NormalizeCapturedValueForField(condition.value, column, condition);
+    }
+    if (condition.requiredValue === true && condition.value2 !== undefined) {
+        filterField.value2 = DRB.Logic.RetrieveMultiple.NormalizeCapturedValueForField(condition.value2, column, condition);
+    }
+    return filterField;
+};
+
+DRB.Logic.RetrieveMultiple.NormalizeCapturedValueForField = function (value, column, condition) {
+    if (!DRB.Utilities.HasValue(column)) { return value; }
+    if (!DRB.Utilities.HasValue(value)) { return value; }
+    switch (column.AttributeType) {
+        case 'Integer':
+        case 'BigInt':
+        case 'Double':
+        case 'Decimal':
+        case 'Money':
+            var numeric = Number(value);
+            return isNaN(numeric) ? value : numeric;
+        case 'Boolean':
+            if (typeof value === 'boolean') { return value; }
+            return value.toString().toLowerCase() === 'true';
+        case 'Picklist':
+        case 'State':
+        case 'Status':
+            return value.toString();
+        case 'MultiPicklist':
+            return Array.isArray(value) ? value : [value];
+        case 'Lookup':
+        case 'Owner':
+        case 'Customer':
+            if (typeof value === 'object') { return value; }
+            var lookupValue = { id: value };
+            if (DRB.Utilities.HasValue(column.AdditionalProperties) && Array.isArray(column.AdditionalProperties.Targets) && column.AdditionalProperties.Targets.length === 1) {
+                lookupValue.entityType = column.AdditionalProperties.Targets[0];
+            }
+            return lookupValue;
+        default:
+            return value;
+    }
+};
 
 /**
  * Retrieve Multiple - Configure Order Columns

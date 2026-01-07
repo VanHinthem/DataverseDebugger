@@ -373,6 +373,7 @@ DRB.Logic.CompleteInitialize = function () {
     DRB.Metadata.DataverseCustomAPIsLoaded = false; // set DataverseCustomAPILoaded as false
     DRB.Metadata.DataverseCustomActionsLoaded = false; // set DataverseCustomActionLoaded as false
     DRB.Metadata.DataverseMetadataLoaded = false; // set DataverseMetadataLoaded as false
+    DRB.Settings.IsInitialized = false;
 
     // hide the main content because CurrentNode is now null
     $("#" + DRB.DOM.MainContent.Id).hide();
@@ -504,6 +505,10 @@ DRB.Logic.CompleteInitialize = function () {
                                 }
                             }
                         });
+                        DRB.Settings.IsInitialized = true;
+                        if (typeof window !== "undefined" && typeof window.__drbFlushPendingCapturedRequests === "function") {
+                            window.__drbFlushPendingCapturedRequests();
+                        }
                         DRB.UI.HideLoading();
                     })
                     .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveUsers Error", DRB.Common.GetErrorMessage(xhr)); });
@@ -603,6 +608,7 @@ DRB.Logic.BindRequestType = function (id) {
         if (!DRB.Utilities.HasValue(nodeConfiguration.manyToMany)) { nodeConfiguration.manyToMany = []; } // Retrieve Single, Retrieve Multiple, Create, Update
         if (!DRB.Utilities.HasValue(nodeConfiguration.filterCriteria)) { nodeConfiguration.filterCriteria = {}; } // Retrieve Multiple
         if (!DRB.Utilities.HasValue(nodeConfiguration.orderFields)) { nodeConfiguration.orderFields = []; } // Retrieve Multiple
+        if (!DRB.Utilities.HasValue(nodeConfiguration.capturedQueryOverrides)) { nodeConfiguration.capturedQueryOverrides = {}; } // Retrieve Single, Retrieve Multiple
         if (!DRB.Utilities.HasValue(nodeConfiguration.secondaryEntity)) { nodeConfiguration.secondaryEntity = null; } // Association
         if (!Array.isArray(nodeConfiguration.secondaryIds)) { nodeConfiguration.secondaryIds = [""]; } // Association
         if (!DRB.Utilities.HasValue(nodeConfiguration.relationship)) { nodeConfiguration.relationship = ""; } // Association
@@ -627,7 +633,7 @@ DRB.Logic.BindRequestType = function (id) {
             case "retrievesingle": // Retrieve Single
                 var properties = ["version", "async", "tokenHeader", "impersonate", "impersonateType", "impersonateId", "formattedValues",
                     "detectChanges", "primaryEntity", "useAlternateKey", "alternateKeyName", "alternateKeyFields",
-                    "primaryId", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany"];
+                    "primaryId", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany", "capturedQueryOverrides"];
 
                 DRB.Metadata.CurrentNode.data.configuration = DRB.Logic.SetNodeConfigurationProperties(nodeConfiguration, properties);
                 DRB.Logic.RetrieveSingle.Start();
@@ -636,7 +642,7 @@ DRB.Logic.BindRequestType = function (id) {
             case "retrievemultiple": // Retrieve Multiple
                 var properties = ["version", "async", "tokenHeader", "impersonate", "impersonateType", "impersonateId", "formattedValues",
                     "retrieveCount", "topCount", "primaryEntity", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany",
-                    "filterCriteria", "orderFields"];
+                    "filterCriteria", "orderFields", "capturedQueryOverrides"];
 
                 DRB.Metadata.CurrentNode.data.configuration = DRB.Logic.SetNodeConfigurationProperties(nodeConfiguration, properties);
                 DRB.Logic.RetrieveMultiple.Start();

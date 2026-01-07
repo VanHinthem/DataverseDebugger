@@ -3,14 +3,14 @@
  * Common - Retrieve Tables
  */
 DRB.Common.RetrieveTables = function () {
-    return DRB.Xrm.Retrieve("EntityDefinitions", "$select=LogicalName,SchemaName,DisplayName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,ObjectTypeCode,IsActivity,ExternalName,ExternalCollectionName");
+    return DRB.Xrm.RetrieveCached("EntityDefinitions", "$select=LogicalName,SchemaName,DisplayName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,ObjectTypeCode,IsActivity,ExternalName,ExternalCollectionName");
 }
 
 /**
  * Common - Retrieve Users
  */
 DRB.Common.RetrieveUsers = function () {
-    return DRB.Xrm.Retrieve("systemusers", "$select=systemuserid,fullname,azureactivedirectoryobjectid&$filter=azureactivedirectoryobjectid ne null");
+    return DRB.Xrm.RetrieveCached("systemusers", "$select=systemuserid,fullname,azureactivedirectoryobjectid&$filter=azureactivedirectoryobjectid ne null");
 }
 
 /**
@@ -25,14 +25,14 @@ DRB.Common.RetrieveSystemViews = function (tableLogicalNames) {
         query.Filters = "$select=savedqueryid,name,returnedtypecode,isdefault,layoutxml&$filter=returnedtypecode eq '" + tableLogicalName + "'";
         queries.push(query);
     });
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
  * Common - Retrieve Personal Views
  */
 DRB.Common.RetrievePersonalViews = function () {
-    return DRB.Xrm.Retrieve("userqueries", "$select=name,returnedtypecode,userqueryid");
+    return DRB.Xrm.RetrieveCached("userqueries", "$select=name,returnedtypecode,userqueryid");
 }
 
 /**
@@ -58,7 +58,7 @@ DRB.Common.RetrieveCustomAPIs = function () {
     queryResponseProperties.Filters = "$select=name,type,uniquename,logicalentityname&$expand=CustomAPIId($select=uniquename)&$filter=statuscode eq 1";
     queries.push(queryResponseProperties);
 
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
@@ -141,14 +141,14 @@ DRB.Common.RetrieveCustomActions = function () {
     queryResponseProperties.Filters = "fetchXml=" + encodeURIComponent(fetchResponseProperties);
     queries.push(queryResponseProperties);
 
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
  * Common - Retrieve Metadata
  */
 DRB.Common.RetrieveMetadata = function () {
-    return DRB.Xrm.RetrieveMetadata();
+    return DRB.Xrm.RetrieveMetadataCached();
 }
 
 /**
@@ -200,7 +200,7 @@ DRB.Common.RetrieveTablesDetails = function (tableLogicalNames, includeRelations
         });
     });
 
-    return DRB.Xrm.RetrieveBatches(batchedQueries);
+    return DRB.Xrm.RetrieveBatchesCached(batchedQueries);
 }
 
 /**

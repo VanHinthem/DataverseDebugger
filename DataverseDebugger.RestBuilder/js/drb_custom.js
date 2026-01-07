@@ -250,6 +250,12 @@ DRB.DOM.FilterBy = {};
 DRB.DOM.FilterBy.MainDiv = { Id: "div_main_fb", Class: "mapping-container" };
 DRB.DOM.FilterBy.MainSpan = { Id: "span_main_fb", Name: "<b>Filter By</b>" };
 DRB.DOM.FilterBy.StartButton = { Id: "btn_startfb_", Name: "Start", Class: "btn-primary" };
+DRB.DOM.FilterBy.CapturedFilterDiv = { Id: "div_capturedfilter", Class: "alert alert-info captured-filter" };
+DRB.DOM.FilterBy.CapturedFilterSpan = { Id: "span_capturedfilter", Name: "Captured $filter (read-only)" };
+DRB.DOM.FilterBy.CapturedFilterHint = { Id: "span_capturedfilter_hint", Name: "Captured filters are applied automatically until Filter By is configured." };
+DRB.DOM.FilterBy.CapturedFilterText = { Id: "txt_capturedfilter", Class: "form-control captured-filter-textarea" };
+DRB.DOM.FilterBy.CapturedFilterCopyButton = { Id: "btn_capturedfilter_copy", Name: "Copy filter", Class: "btn-secondary btn-sm" };
+DRB.DOM.FilterBy.CapturedFilterRemoveButton = { Id: "btn_capturedfilter_clear", Name: "Remove captured filter", Class: "btn-outline-secondary btn-sm" };
 // Filter Groups
 DRB.DOM.FilterGroups = {};
 DRB.DOM.FilterGroups.MainDiv = { Id: "div_main_fg_", Class: "mapping-container" };
@@ -2626,6 +2632,41 @@ DRB.Xrm.Retrieve = function (entitySetName, filters) {
 }
 
 /**
+ * Xrm - Retrieve (cached metadata)
+ * @param {string} entitySetName Entity Set Name
+ * @param {string} filters Filters
+ */
+DRB.Xrm.RetrieveCached = function (entitySetName, filters) {
+    var retrieveUrl = encodeURI(DRB.Xrm.GetClientUrl() + "/api/data/v9.0/" + entitySetName + "?" + filters);
+
+    if (DRB.Xrm.IsDemoMode()) { return $.when(DRB.Xrm.GetDemoData(entitySetName, filters)); }
+
+    return DRB.Xrm.ExecuteCachedRequest({
+        method: "GET",
+        url: retrieveUrl,
+        dataType: "json",
+        request: function () {
+            var token = DRB.Xrm.GetCurrentAccessToken();
+            return $.ajax({
+                type: "GET",
+                contentType: "application/json; charset=utf-8",
+                datatype: "json",
+                async: true,
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader("OData-MaxVersion", "4.0");
+                    xhr.setRequestHeader("OData-Version", "4.0");
+                    xhr.setRequestHeader("Accept", "application/json");
+                    xhr.setRequestHeader("Prefer", "odata.include-annotations=\"*\"");
+                    DRB.Xrm.ApplyMetadataHeaders(xhr);
+                    if (DRB.Utilities.HasValue(token)) { xhr.setRequestHeader("Authorization", "Bearer " + token); }
+                },
+                url: retrieveUrl
+            });
+        }
+    });
+}
+
+/**
  * Xrm - Retrieve Batch
  * @param {any[]} queries Queries
  */
@@ -2669,6 +2710,59 @@ DRB.Xrm.RetrieveBatch = function (queries) {
 }
 
 /**
+ * Xrm - Retrieve Batch (cached metadata)
+ * @param {any[]} queries Queries
+ */
+DRB.Xrm.RetrieveBatchCached = function (queries) {
+    var batchDescription = "batch_" + DRB.Utilities.GenerateGuid();
+    var data = [];
+    queries.forEach(function (query) {
+        var retrieveUrl = DRB.Xrm.GetClientUrl() + "/api/data/v9.0/" + query.EntitySetName + "?" + query.Filters;
+        data.push("--" + batchDescription);
+        data.push("Content-Type: application/http");
+        data.push("Content-Transfer-Encoding: binary");
+        data.push("");
+        data.push("GET " + retrieveUrl + " HTTP/1.1");
+        data.push("Content-Type: application/json");
+        data.push("OData-Version: 4.0");
+        data.push("OData-MaxVersion: 4.0");
+        data.push("Prefer: odata.include-annotations=\"*\"");
+        data.push("");
+    });
+    data.push("--" + batchDescription + "--");
+    var payload = data.join("\r\n");
+    var batchUrl = DRB.Xrm.GetClientUrl() + "/api/data/v9.0/$batch";
+    var cacheKey = DRB.Xrm.BuildBatchCacheKey(queries);
+
+    if (DRB.Xrm.IsDemoMode()) { return $.when(DRB.Xrm.GetDemoDataBatch(queries)); }
+
+    return DRB.Xrm.ExecuteCachedRequest({
+        method: "POST",
+        url: batchUrl,
+        body: payload,
+        cacheKey: cacheKey,
+        dataType: "text",
+        request: function () {
+            var token = DRB.Xrm.GetCurrentAccessToken();
+            return $.ajax({
+                method: "POST",
+                data: payload,
+                async: true,
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader("Content-Type", "multipart/mixed;boundary=" + batchDescription);
+                    xhr.setRequestHeader("OData-MaxVersion", "4.0");
+                    xhr.setRequestHeader("OData-Version", "4.0");
+                    xhr.setRequestHeader("Accept", "application/json");
+                    DRB.Xrm.ApplyMetadataHeaders(xhr, cacheKey);
+                    if (DRB.Utilities.HasValue(token)) { xhr.setRequestHeader("Authorization", "Bearer " + token); }
+                },
+                url: batchUrl
+            });
+        }
+    });
+}
+
+/**
  * Xrm - Retrieve Batches
  * @param {any[]} batchedQueries Batched Queries
  */
@@ -2678,6 +2772,20 @@ DRB.Xrm.RetrieveBatches = function (batchedQueries) {
         var queries = [];
         batchedQuery.forEach(function (query) { queries.push(query); });
         xrmCalls.push(DRB.Xrm.RetrieveBatch(queries));
+    });
+    return $.when.apply($, xrmCalls);
+}
+
+/**
+ * Xrm - Retrieve Batches (cached metadata)
+ * @param {any[]} batchedQueries Batched Queries
+ */
+DRB.Xrm.RetrieveBatchesCached = function (batchedQueries) {
+    var xrmCalls = [];
+    batchedQueries.forEach(function (batchedQuery) {
+        var queries = [];
+        batchedQuery.forEach(function (query) { queries.push(query); });
+        xrmCalls.push(DRB.Xrm.RetrieveBatchCached(queries));
     });
     return $.when.apply($, xrmCalls);
 }
@@ -2704,6 +2812,173 @@ DRB.Xrm.RetrieveMetadata = function () {
 }
 
 /**
+ * Xrm - Retrieve Metadata (cached metadata)
+ * Get $metadata content (XML)
+ */
+DRB.Xrm.RetrieveMetadataCached = function () {
+    if (DRB.Xrm.IsDemoMode()) { return $.when(DRB.Xrm.GetDemoMetadata()); }
+
+    var metadataUrl = DRB.Xrm.GetMetadataUrl();
+    return DRB.Xrm.ExecuteCachedRequest({
+        method: "GET",
+        url: metadataUrl,
+        dataType: "xml",
+        request: function () {
+            var token = DRB.Xrm.GetCurrentAccessToken();
+            return $.ajax({
+                type: "GET",
+                datatype: "xml",
+                async: true,
+                beforeSend: function (xhr) {
+                    DRB.Xrm.ApplyMetadataHeaders(xhr);
+                    if (DRB.Utilities.HasValue(token)) { xhr.setRequestHeader("Authorization", "Bearer " + token); }
+                },
+                url: metadataUrl
+            });
+        }
+    });
+}
+
+DRB.Xrm.IsWebViewHostAvailable = function () {
+    return typeof chrome !== "undefined" &&
+        DRB.Utilities.HasValue(chrome.webview) &&
+        typeof chrome.webview.postMessage === "function";
+}
+
+DRB.Xrm.ExecuteCachedRequest = function (options) {
+    var deferred = $.Deferred();
+    if (!options || !DRB.Utilities.HasValue(options.url) || !DRB.Utilities.HasValue(options.request)) {
+        deferred.reject();
+        return deferred.promise();
+    }
+
+    var method = options.method || "GET";
+    var url = options.url;
+    var body = options.body || null;
+    var dataType = options.dataType || "text";
+    var cacheKey = options.cacheKey || null;
+
+    var ajax = options.request();
+    ajax.done(function (data, textStatus, jqXHR) {
+        var responseText = "";
+        var statusCode = 200;
+        var contentType = "";
+        try {
+            if (DRB.Utilities.HasValue(jqXHR)) {
+                statusCode = jqXHR.status || statusCode;
+                responseText = jqXHR.responseText || "";
+                if (typeof jqXHR.getResponseHeader === "function") {
+                    contentType = jqXHR.getResponseHeader("Content-Type") || "";
+                }
+            }
+        } catch { }
+
+        if (DRB.Utilities.HasValue(responseText)) {
+            DRB.Xrm.StoreRestMetadataCache(method, url, body, responseText, statusCode, cacheKey, contentType);
+        }
+
+        deferred.resolve(data);
+    })
+        .fail(function (xhr) {
+            deferred.reject(xhr);
+        });
+
+    return deferred.promise();
+}
+
+DRB.Xrm.ParseCachedResponse = function (body, dataType) {
+    if (!DRB.Utilities.HasValue(body)) { return body; }
+    if (dataType === "xml") {
+        try { return $.parseXML(body); } catch { return body; }
+    }
+    if (dataType === "json") {
+        try { return JSON.parse(body); } catch { return body; }
+    }
+    return body;
+}
+
+DRB.Xrm.RequestRestMetadataCache = function (method, url, body, cacheKey) {
+    var deferred = $.Deferred();
+    if (!DRB.Xrm.IsWebViewHostAvailable()) {
+        deferred.resolve({ hit: false });
+        return deferred.promise();
+    }
+
+    var requestId = DRB.Utilities.GenerateGuid();
+    if (!DRB.Xrm._webViewRequests) { DRB.Xrm._webViewRequests = {}; }
+    DRB.Xrm._webViewRequests[requestId] = deferred;
+
+    var payload = { method: method, url: url };
+    if (DRB.Utilities.HasValue(body)) { payload.body = body; }
+    if (DRB.Utilities.HasValue(cacheKey)) { payload.cacheKey = cacheKey; }
+
+    var message = { action: "restmetadata-get", requestId: requestId, data: payload };
+    try { chrome.webview.postMessage(message); } catch { deferred.resolve({ hit: false }); }
+    return deferred.promise();
+}
+
+DRB.Xrm.StoreRestMetadataCache = function (method, url, body, responseText, statusCode, cacheKey, contentType) {
+    if (!DRB.Xrm.IsWebViewHostAvailable() || !DRB.Utilities.HasValue(responseText)) { return; }
+    var payload = {
+        method: method,
+        url: url,
+        statusCode: statusCode || 200,
+        responseText: responseText,
+        responseEncoding: "utf-8"
+    };
+    if (DRB.Utilities.HasValue(body)) { payload.body = body; }
+    if (DRB.Utilities.HasValue(cacheKey)) { payload.cacheKey = cacheKey; }
+    if (DRB.Utilities.HasValue(contentType)) { payload.contentType = contentType; }
+
+    var message = { action: "restmetadata-set", data: payload };
+    try { chrome.webview.postMessage(message); } catch { }
+}
+
+DRB.Xrm.HandleWebViewMessage = function (message) {
+    if (!message || !message.requestId) { return; }
+    if (!DRB.Xrm._webViewRequests) { return; }
+    var deferred = DRB.Xrm._webViewRequests[message.requestId];
+    if (!deferred) { return; }
+    delete DRB.Xrm._webViewRequests[message.requestId];
+    deferred.resolve(message);
+}
+
+DRB.Xrm.BuildBatchCacheKey = function (queries) {
+    if (!Array.isArray(queries) || queries.length === 0) { return ""; }
+    var parts = [];
+    queries.forEach(function (query) {
+        if (!DRB.Utilities.HasValue(query)) { return; }
+        var name = query.EntitySetName || "";
+        var filters = query.Filters || "";
+        parts.push(name + "?" + filters);
+    });
+    var joined = parts.join("||");
+    return DRB.Xrm.HashString(joined);
+}
+
+DRB.Xrm.HashString = function (value) {
+    if (!DRB.Utilities.HasValue(value)) { return ""; }
+    var hash = 0xcbf29ce484222325n;
+    for (var i = 0; i < value.length; i++) {
+        hash ^= BigInt(value.charCodeAt(i));
+        hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+    }
+    var hex = hash.toString(16);
+    while (hex.length < 16) { hex = "0" + hex; }
+    return hex;
+}
+
+DRB.Xrm.ApplyMetadataHeaders = function (xhr, cacheKey) {
+    if (!DRB.Utilities.HasValue(xhr)) { return; }
+    try {
+        xhr.setRequestHeader("x-drb-metadata", "1");
+        if (DRB.Utilities.HasValue(cacheKey)) {
+            xhr.setRequestHeader("x-drb-cachekey", cacheKey);
+        }
+    } catch { }
+}
+
+/**
  * Xrm - Get Server Version
  * @param {string} serverUrl Server Url
  * @param {string} token Token
@@ -2723,21 +2998,22 @@ DRB.Xrm.GetServerVersion = function (serverUrl, token) {
         url: serverUrl + "/api/data/v9.0/RetrieveVersion()"
     });
 }
-// #endregion  
+// #endregion
+  
  
 // #region DRB.Common.Xrm
 /**
  * Common - Retrieve Tables
  */
 DRB.Common.RetrieveTables = function () {
-    return DRB.Xrm.Retrieve("EntityDefinitions", "$select=LogicalName,SchemaName,DisplayName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,ObjectTypeCode,IsActivity,ExternalName,ExternalCollectionName");
+    return DRB.Xrm.RetrieveCached("EntityDefinitions", "$select=LogicalName,SchemaName,DisplayName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,ObjectTypeCode,IsActivity,ExternalName,ExternalCollectionName");
 }
 
 /**
  * Common - Retrieve Users
  */
 DRB.Common.RetrieveUsers = function () {
-    return DRB.Xrm.Retrieve("systemusers", "$select=systemuserid,fullname,azureactivedirectoryobjectid&$filter=azureactivedirectoryobjectid ne null");
+    return DRB.Xrm.RetrieveCached("systemusers", "$select=systemuserid,fullname,azureactivedirectoryobjectid&$filter=azureactivedirectoryobjectid ne null");
 }
 
 /**
@@ -2752,14 +3028,14 @@ DRB.Common.RetrieveSystemViews = function (tableLogicalNames) {
         query.Filters = "$select=savedqueryid,name,returnedtypecode,isdefault,layoutxml&$filter=returnedtypecode eq '" + tableLogicalName + "'";
         queries.push(query);
     });
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
  * Common - Retrieve Personal Views
  */
 DRB.Common.RetrievePersonalViews = function () {
-    return DRB.Xrm.Retrieve("userqueries", "$select=name,returnedtypecode,userqueryid");
+    return DRB.Xrm.RetrieveCached("userqueries", "$select=name,returnedtypecode,userqueryid");
 }
 
 /**
@@ -2785,7 +3061,7 @@ DRB.Common.RetrieveCustomAPIs = function () {
     queryResponseProperties.Filters = "$select=name,type,uniquename,logicalentityname&$expand=CustomAPIId($select=uniquename)&$filter=statuscode eq 1";
     queries.push(queryResponseProperties);
 
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
@@ -2868,14 +3144,14 @@ DRB.Common.RetrieveCustomActions = function () {
     queryResponseProperties.Filters = "fetchXml=" + encodeURIComponent(fetchResponseProperties);
     queries.push(queryResponseProperties);
 
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
  * Common - Retrieve Metadata
  */
 DRB.Common.RetrieveMetadata = function () {
-    return DRB.Xrm.RetrieveMetadata();
+    return DRB.Xrm.RetrieveMetadataCached();
 }
 
 /**
@@ -2927,7 +3203,7 @@ DRB.Common.RetrieveTablesDetails = function (tableLogicalNames, includeRelations
         });
     });
 
-    return DRB.Xrm.RetrieveBatches(batchedQueries);
+    return DRB.Xrm.RetrieveBatchesCached(batchedQueries);
 }
 
 /**
@@ -3081,7 +3357,8 @@ DRB.Common.SetTables = function (args, tables, mapRelationships, mapAlternateKey
         }
     });
 }
-// #endregion  
+// #endregion
+  
  
 // #region DRB.Common.Map
 /**
@@ -4551,6 +4828,7 @@ DRB.Logic.CompleteInitialize = function () {
     DRB.Metadata.DataverseCustomAPIsLoaded = false; // set DataverseCustomAPILoaded as false
     DRB.Metadata.DataverseCustomActionsLoaded = false; // set DataverseCustomActionLoaded as false
     DRB.Metadata.DataverseMetadataLoaded = false; // set DataverseMetadataLoaded as false
+    DRB.Settings.IsInitialized = false;
 
     // hide the main content because CurrentNode is now null
     $("#" + DRB.DOM.MainContent.Id).hide();
@@ -4682,6 +4960,10 @@ DRB.Logic.CompleteInitialize = function () {
                                 }
                             }
                         });
+                        DRB.Settings.IsInitialized = true;
+                        if (typeof window !== "undefined" && typeof window.__drbFlushPendingCapturedRequests === "function") {
+                            window.__drbFlushPendingCapturedRequests();
+                        }
                         DRB.UI.HideLoading();
                     })
                     .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveUsers Error", DRB.Common.GetErrorMessage(xhr)); });
@@ -4781,6 +5063,7 @@ DRB.Logic.BindRequestType = function (id) {
         if (!DRB.Utilities.HasValue(nodeConfiguration.manyToMany)) { nodeConfiguration.manyToMany = []; } // Retrieve Single, Retrieve Multiple, Create, Update
         if (!DRB.Utilities.HasValue(nodeConfiguration.filterCriteria)) { nodeConfiguration.filterCriteria = {}; } // Retrieve Multiple
         if (!DRB.Utilities.HasValue(nodeConfiguration.orderFields)) { nodeConfiguration.orderFields = []; } // Retrieve Multiple
+        if (!DRB.Utilities.HasValue(nodeConfiguration.capturedQueryOverrides)) { nodeConfiguration.capturedQueryOverrides = {}; } // Retrieve Single, Retrieve Multiple
         if (!DRB.Utilities.HasValue(nodeConfiguration.secondaryEntity)) { nodeConfiguration.secondaryEntity = null; } // Association
         if (!Array.isArray(nodeConfiguration.secondaryIds)) { nodeConfiguration.secondaryIds = [""]; } // Association
         if (!DRB.Utilities.HasValue(nodeConfiguration.relationship)) { nodeConfiguration.relationship = ""; } // Association
@@ -4805,7 +5088,7 @@ DRB.Logic.BindRequestType = function (id) {
             case "retrievesingle": // Retrieve Single
                 var properties = ["version", "async", "tokenHeader", "impersonate", "impersonateType", "impersonateId", "formattedValues",
                     "detectChanges", "primaryEntity", "useAlternateKey", "alternateKeyName", "alternateKeyFields",
-                    "primaryId", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany"];
+                    "primaryId", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany", "capturedQueryOverrides"];
 
                 DRB.Metadata.CurrentNode.data.configuration = DRB.Logic.SetNodeConfigurationProperties(nodeConfiguration, properties);
                 DRB.Logic.RetrieveSingle.Start();
@@ -4814,7 +5097,7 @@ DRB.Logic.BindRequestType = function (id) {
             case "retrievemultiple": // Retrieve Multiple
                 var properties = ["version", "async", "tokenHeader", "impersonate", "impersonateType", "impersonateId", "formattedValues",
                     "retrieveCount", "topCount", "primaryEntity", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany",
-                    "filterCriteria", "orderFields"];
+                    "filterCriteria", "orderFields", "capturedQueryOverrides"];
 
                 DRB.Metadata.CurrentNode.data.configuration = DRB.Logic.SetNodeConfigurationProperties(nodeConfiguration, properties);
                 DRB.Logic.RetrieveMultiple.Start();
@@ -5773,6 +6056,25 @@ DRB.GenerateCode.SetCodeEditors = function (codeXrmWebApi, codeXrmWebApiExecute,
 }
 
 /**
+ * Generate Code - Get Captured Query Override
+ * Returns sanitized override values stored during request capture
+ * @param {any} settings Configuration
+ * @param {string} propertyName Override name (e.g. "filter", "expand")
+ */
+DRB.GenerateCode.GetCapturedQueryOverride = function (settings, propertyName) {
+    if (!DRB.Utilities.HasValue(settings) || !DRB.Utilities.HasValue(propertyName)) { return ""; }
+    if (!DRB.Utilities.HasValue(settings.capturedQueryOverrides)) { return ""; }
+    var overrideValue = settings.capturedQueryOverrides[propertyName];
+    if (!DRB.Utilities.HasValue(overrideValue)) { return ""; }
+    var sanitizedValue = overrideValue.toString().trim();
+    if (sanitizedValue === "") { return ""; }
+    sanitizedValue = sanitizedValue.replace(/^\?/, "");
+    var pattern = new RegExp('^\\$?' + propertyName + '=', 'i');
+    sanitizedValue = sanitizedValue.replace(pattern, "");
+    return sanitizedValue;
+}
+
+/**
  * Generate Code - Get Url Fields
  * Used in Retrieve Single, Retrieve Multiple, Create, Update
  * @param {any} settings Configuration
@@ -5784,7 +6086,8 @@ DRB.GenerateCode.GetUrlFields = function (settings) {
     if (settings.fields.length > 0) { urlFields = '$select=' + fieldLogicalNames.join(); }
 
     // check relationships
-    if (settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0) {
+    var hasRelationshipExpansions = settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0;
+    if (hasRelationshipExpansions) {
         if (urlFields !== '') { urlFields += '&'; }
         urlFields += '$expand=';
     }
@@ -5803,6 +6106,14 @@ DRB.GenerateCode.GetUrlFields = function (settings) {
         var relFieldLogicalNames = manyToMany.fields.map(function (field) { return field.oDataName; });
         urlFields += manyToMany.schemaName + '($select=' + relFieldLogicalNames.join() + '),';
     });
+
+    if (hasRelationshipExpansions === false) {
+        var overrideExpand = DRB.GenerateCode.GetCapturedQueryOverride(settings, "expand");
+        if (DRB.Utilities.HasValue(overrideExpand)) {
+            if (urlFields !== '') { urlFields += '&'; }
+            urlFields += '$expand=' + overrideExpand;
+        }
+    }
 
     if (urlFields !== '') {
         urlFields = '?' + urlFields;
@@ -6202,9 +6513,14 @@ DRB.GenerateCode.GetFilterFields = function (settings) {
     var filterFields = DRB.GenerateCode.ParseFilterCriteria("", settings.filterCriteria);
     if (filterFields !== "") {
         // add $filter= clause
-        filterFields = '$filter=' + filterFields;
+        return '$filter=' + filterFields;
     }
-    return filterFields;
+
+    var overrideFilter = DRB.GenerateCode.GetCapturedQueryOverride(settings, "filter");
+    if (DRB.Utilities.HasValue(overrideFilter)) {
+        return '$filter=' + overrideFilter;
+    }
+    return '';
 }
 
 /**
@@ -6227,8 +6543,14 @@ DRB.GenerateCode.GetOrderFields = function (settings) {
     if (orderFields !== '') {
         orderFields = '$orderby=' + orderFields;
         if (orderFields.slice(-1) === ',') { orderFields = orderFields.slice(0, -1); }
+        return orderFields;
     }
-    return orderFields;
+
+    var overrideOrder = DRB.GenerateCode.GetCapturedQueryOverride(settings, "orderby");
+    if (DRB.Utilities.HasValue(overrideOrder)) {
+        return '$orderby=' + overrideOrder;
+    }
+    return '';
 }
 
 /**
@@ -10918,7 +11240,8 @@ DRB.GenerateCode.PowerAutomate = function (requestType) {
 
     var expandQuery = "";
     // #region Expand Query
-    if (settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0) {
+    var hasRelationshipExpansions = settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0;
+    if (hasRelationshipExpansions) {
         settings.oneToMany.forEach(function (oneToMany) {
             var relFieldLogicalNames = oneToMany.fields.map(function (field) { return field.oDataName; });
             expandQuery += oneToMany.schemaName + '($select=' + relFieldLogicalNames.join() + '),';
@@ -10935,6 +11258,9 @@ DRB.GenerateCode.PowerAutomate = function (requestType) {
         });
 
         if (expandQuery.slice(-1) === ',') { expandQuery = expandQuery.slice(0, -1); }
+    } else {
+        var capturedExpand = DRB.GenerateCode.GetCapturedQueryOverride(settings, "expand");
+        if (DRB.Utilities.HasValue(capturedExpand)) { expandQuery = capturedExpand; }
     }
     // #endregion
 
@@ -11657,7 +11983,8 @@ DRB.GenerateCode.Start = function () {
             break;
     }
 }
-// #endregion  
+// #endregion
+  
  
 // #region DRB.GeneratePostman
 /**
@@ -14471,11 +14798,575 @@ DRB.Logic.RetrieveMultiple.ConfigureFilterBy = function () {
     var metadataPath = "filterCriteria";
     $("#" + DRB.DOM.FilterGroups.DivChoice.Id + metadataPath).append(DRB.UI.CreateButton(DRB.DOM.FilterBy.StartButton.Id, DRB.DOM.FilterBy.StartButton.Name, DRB.DOM.FilterBy.StartButton.Class, DRB.Logic.RetrieveMultiple.StartAddFilter, "FilterGroups", "FilterColumns", metadataPath));
 
-    var filterCriteria = JSON.parse(JSON.stringify(DRB.Metadata.CurrentNode.data.configuration.filterCriteria));
+    DRB.Metadata.CurrentNode.data.configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+    var configuration = DRB.Metadata.CurrentNode.data.configuration;
+    if (!DRB.Utilities.HasValue(configuration.filterCriteria)) { configuration.filterCriteria = {}; }
+    DRB.Logic.RetrieveMultiple.TryHydrateCapturedFilterCriteria();
+
+    var filterCriteriaSource = DRB.Utilities.HasValue(configuration.filterCriteria) ? configuration.filterCriteria : {};
+    var filterCriteria = {};
+    try {
+        filterCriteria = JSON.parse(JSON.stringify(filterCriteriaSource));
+    } catch {
+        filterCriteria = {};
+    }
+
     DRB.Metadata.filterCriteria = {};
-    DRB.Metadata.CurrentNode.data.configuration.filterCriteria = {};
+    configuration.filterCriteria = {};
     DRB.Logic.RetrieveMultiple.ParseFilterCriteria(filterCriteria, metadataPath);
+    DRB.Logic.RetrieveMultiple.RenderCapturedFilterNotice();
 }
+
+DRB.Logic.RetrieveMultiple.RenderCapturedFilterNotice = function () {
+    var filterContainer = $("#" + DRB.DOM.FilterBy.MainDiv.Id);
+    if (filterContainer.length === 0) { return; }
+    $("#" + DRB.DOM.FilterBy.CapturedFilterDiv.Id).remove();
+
+    if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return; }
+    var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+    var overrides = configuration.capturedQueryOverrides || {};
+    if (!DRB.Utilities.HasValue(overrides.filter)) { return; }
+
+    if (DRB.Utilities.HasValue(configuration.filterCriteria) && configuration.filterCriteria.filterType === "fields") { return; }
+    if (DRB.Utilities.HasValue(configuration.filterCriteria) && configuration.filterCriteria.filterType === "groups") { return; }
+
+    var capturedDiv = DRB.UI.CreateEmptyDiv(DRB.DOM.FilterBy.CapturedFilterDiv.Id, DRB.DOM.FilterBy.CapturedFilterDiv.Class);
+    capturedDiv.append(DRB.UI.CreateSpan(DRB.DOM.FilterBy.CapturedFilterSpan.Id, DRB.DOM.FilterBy.CapturedFilterSpan.Name));
+    capturedDiv.append(DRB.UI.CreateSpacer());
+    capturedDiv.append(DRB.UI.CreateSpan(DRB.DOM.FilterBy.CapturedFilterHint.Id, DRB.DOM.FilterBy.CapturedFilterHint.Name, null, "text-muted small"));
+    capturedDiv.append(DRB.UI.CreateSpacer());
+    var textarea = DRB.UI.CreateTextArea(DRB.DOM.FilterBy.CapturedFilterText.Id, DRB.DOM.FilterBy.CapturedFilterText.Class);
+    textarea.attr("rows", 4);
+    textarea.prop("readonly", true);
+    textarea.val(overrides.filter);
+    capturedDiv.append(textarea);
+    capturedDiv.append(DRB.UI.CreateSpacer());
+
+    var capturedActions = DRB.UI.CreateEmptyDiv(DRB.DOM.FilterBy.CapturedFilterDiv.Id + "_actions", "captured-filter-actions");
+    capturedActions.append(DRB.UI.CreateButton(DRB.DOM.FilterBy.CapturedFilterCopyButton.Id, DRB.DOM.FilterBy.CapturedFilterCopyButton.Name, DRB.DOM.FilterBy.CapturedFilterCopyButton.Class, DRB.Logic.RetrieveMultiple.CopyCapturedFilterToClipboard));
+    capturedActions.append(DRB.UI.CreateButton(DRB.DOM.FilterBy.CapturedFilterRemoveButton.Id, DRB.DOM.FilterBy.CapturedFilterRemoveButton.Name, DRB.DOM.FilterBy.CapturedFilterRemoveButton.Class, DRB.Logic.RetrieveMultiple.ClearCapturedFilterOverride));
+    capturedDiv.append(capturedActions);
+
+    filterContainer.prepend(capturedDiv);
+};
+
+DRB.Logic.RetrieveMultiple.CopyCapturedFilterToClipboard = function () {
+    var textarea = $("#" + DRB.DOM.FilterBy.CapturedFilterText.Id);
+    if (textarea.length === 0) { return; }
+    var filterValue = textarea.val();
+    if (!DRB.Utilities.HasValue(filterValue)) { return; }
+    DRB.Logic.CopyCodeToClipboard(filterValue);
+    DRB.UI.ShowMessage("Captured $filter copied to Clipboard");
+    setTimeout(function () { DRB.UI.HideLoading(); }, DRB.Settings.TimeoutDelay);
+};
+
+DRB.Logic.RetrieveMultiple.ClearCapturedFilterOverride = function () {
+    if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return; }
+    var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+    if (!DRB.Utilities.HasValue(configuration.capturedQueryOverrides)) { configuration.capturedQueryOverrides = {}; }
+    delete configuration.capturedQueryOverrides.filter;
+    $("#" + DRB.DOM.FilterBy.CapturedFilterDiv.Id).remove();
+};
+
+DRB.Logic.RetrieveMultiple.TryHydrateCapturedFilterCriteria = function () {
+    if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return false; }
+    var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+    if (!DRB.Utilities.HasValue(configuration.capturedQueryOverrides)) { return false; }
+    if (DRB.Utilities.HasValue(configuration.filterCriteria) && DRB.Utilities.HasValue(configuration.filterCriteria.filterType)) { return false; }
+    var overrideFilter = configuration.capturedQueryOverrides.filter;
+    if (!DRB.Utilities.HasValue(overrideFilter)) { return false; }
+    if (!Array.isArray(DRB.Metadata.CurrentColumns) || DRB.Metadata.CurrentColumns.length === 0) { return false; }
+    var parsedCriteria = DRB.Logic.RetrieveMultiple.ParseCapturedFilterToCriteria(overrideFilter);
+    if (!DRB.Utilities.HasValue(parsedCriteria)) { return false; }
+    configuration.filterCriteria = parsedCriteria;
+    delete configuration.capturedQueryOverrides.filter;
+    return true;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedFilterToCriteria = function (filterText) {
+    if (!DRB.Utilities.HasValue(filterText)) { return null; }
+    var working = filterText.trim();
+    if (working.length === 0) { return null; }
+    if (working.indexOf('$filter=') === 0) { working = working.substring(8).trim(); }
+    var ast = DRB.Logic.RetrieveMultiple.ParseCapturedFilterExpression(working);
+    if (!DRB.Utilities.HasValue(ast)) { return null; }
+    try {
+        return DRB.Logic.RetrieveMultiple.ConvertCapturedAstToCriteria(ast);
+    } catch (parseError) {
+        console.warn('DRB captured filter parser failed', parseError);
+        return null;
+    }
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedFilterExpression = function (expression) {
+    if (!DRB.Utilities.HasValue(expression)) { return null; }
+    var trimmed = DRB.Logic.RetrieveMultiple.TrimCapturedParentheses(expression.trim());
+    if (trimmed.length === 0) { return null; }
+    var splitResult = DRB.Logic.RetrieveMultiple.SplitCapturedFilterExpression(trimmed);
+    if (!splitResult || splitResult.segments.length === 0) { return null; }
+    if (splitResult.segments.length === 1) {
+        var condition = DRB.Logic.RetrieveMultiple.ParseCapturedFilterCondition(splitResult.segments[0]);
+        if (!condition) { return null; }
+        return { type: "condition", condition: condition };
+    }
+    var logic = splitResult.operators[0] || "and";
+    var inconsistentOperator = splitResult.operators.some(function (op) { return op !== logic; });
+    if (inconsistentOperator === true) { return null; }
+    var children = [];
+    var parseFailed = false;
+    splitResult.segments.forEach(function (segment) {
+        if (parseFailed === true || !DRB.Utilities.HasValue(segment)) { return; }
+        var childAst = DRB.Logic.RetrieveMultiple.ParseCapturedFilterExpression(segment);
+        if (!childAst) { parseFailed = true; return; }
+        children.push(childAst);
+    });
+    if (parseFailed === true || children.length === 0) { return null; }
+    if (children.length === 1) { return children[0]; }
+    return { type: "group", logic: logic, children: children };
+};
+
+DRB.Logic.RetrieveMultiple.SplitCapturedFilterExpression = function (expression) {
+    var result = { segments: [], operators: [] };
+    if (!DRB.Utilities.HasValue(expression)) { return result; }
+    var depth = 0;
+    var inQuotes = false;
+    var buffer = '';
+    for (var i = 0; i < expression.length; i++) {
+        var char = expression[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < expression.length && expression[i + 1] === "'") {
+                buffer += "''";
+                i++;
+                continue;
+            }
+            inQuotes = !inQuotes;
+            buffer += char;
+            continue;
+        }
+        if (inQuotes === false) {
+            if (char === '(') { depth++; buffer += char; continue; }
+            if (char === ')') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+            if (depth === 0) {
+                var remaining = expression.substring(i);
+                var remainingLower = remaining.toLowerCase();
+                if (remainingLower.indexOf(' and ') === 0) {
+                    if (buffer.trim().length > 0) { result.segments.push(buffer.trim()); }
+                    result.operators.push('and');
+                    buffer = '';
+                    i += 4;
+                    continue;
+                }
+                if (remainingLower.indexOf(' or ') === 0) {
+                    if (buffer.trim().length > 0) { result.segments.push(buffer.trim()); }
+                    result.operators.push('or');
+                    buffer = '';
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        buffer += char;
+    }
+    if (buffer.trim().length > 0) { result.segments.push(buffer.trim()); }
+    return result;
+};
+
+DRB.Logic.RetrieveMultiple.TrimCapturedParentheses = function (expression) {
+    var working = expression;
+    var changed = true;
+    while (changed === true) {
+        changed = false;
+        if (working.startsWith('(') && working.endsWith(')')) {
+            var depth = 0;
+            var inQuotes = false;
+            var removable = true;
+            for (var i = 0; i < working.length; i++) {
+                var char = working[i];
+                if (char === "'") {
+                    if (inQuotes === true && i + 1 < working.length && working[i + 1] === "'") { i++; continue; }
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+                if (inQuotes === true) { continue; }
+                if (char === '(') { depth++; }
+                if (char === ')') {
+                    depth--;
+                    if (depth === 0 && i < working.length - 1) { removable = false; break; }
+                }
+            }
+            if (removable === true && depth === 0) {
+                working = working.substring(1, working.length - 1).trim();
+                changed = true;
+            }
+        }
+    }
+    return working;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedFilterCondition = function (segment) {
+    if (!DRB.Utilities.HasValue(segment)) { return null; }
+    var cleaned = DRB.Logic.RetrieveMultiple.TrimCapturedParentheses(segment.trim());
+    if (cleaned.length === 0) { return null; }
+    var dynamicsCondition = DRB.Logic.RetrieveMultiple.ParseCapturedMicrosoftFunction(cleaned);
+    if (dynamicsCondition) { return dynamicsCondition; }
+    var simpleFunction = DRB.Logic.RetrieveMultiple.ParseCapturedSimpleFunction(cleaned);
+    if (simpleFunction) { return simpleFunction; }
+    return DRB.Logic.RetrieveMultiple.ParseCapturedBinaryCondition(cleaned);
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedMicrosoftFunction = function (segment) {
+    var match = segment.match(/^Microsoft\\.Dynamics\\.CRM\\.([^\\(]+)\\((.*)\\)$/i);
+    if (!match) { return null; }
+    var operator = match[1].trim();
+    var argsText = match[2];
+    var args = DRB.Logic.RetrieveMultiple.ParseCapturedFunctionArguments(argsText);
+    if (!DRB.Utilities.HasValue(args.PropertyName)) { return null; }
+    var fieldPath = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args.PropertyName, true);
+    var condition = { fieldPath: fieldPath, operator: operator, requiredValue: false };
+    if (DRB.Utilities.HasValue(args.PropertyValues)) {
+        var parsedArray = DRB.Logic.RetrieveMultiple.ParseCapturedArrayLiteral(args.PropertyValues);
+        if (operator === 'Between' || operator === 'NotBetween') {
+            if (parsedArray.length > 0) { condition.value = parsedArray[0]; }
+            if (parsedArray.length > 1) { condition.value2 = parsedArray[1]; }
+            condition.requiredValue = true;
+        } else {
+            condition.value = parsedArray;
+            condition.requiredValue = true;
+        }
+    }
+    if (DRB.Utilities.HasValue(args.PropertyValue)) {
+        condition.value = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args.PropertyValue);
+        condition.requiredValue = true;
+    }
+    if (DRB.Utilities.HasValue(args.PropertyValue1)) {
+        condition.value = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args.PropertyValue1);
+        condition.requiredValue = true;
+    }
+    if (DRB.Utilities.HasValue(args.PropertyValue2)) {
+        condition.value2 = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args.PropertyValue2);
+        condition.requiredValue = true;
+    }
+    return condition;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedFunctionArguments = function (argsText) {
+    var result = {};
+    if (!DRB.Utilities.HasValue(argsText)) { return result; }
+    var buffer = '';
+    var depth = 0;
+    var inQuotes = false;
+    var entries = [];
+    for (var i = 0; i < argsText.length; i++) {
+        var char = argsText[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < argsText.length && argsText[i + 1] === "'") { buffer += "''"; i++; continue; }
+            inQuotes = !inQuotes;
+            buffer += char;
+            continue;
+        }
+        if (inQuotes === false) {
+            if (char === '[') { depth++; buffer += char; continue; }
+            if (char === ']') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+            if (char === ',' && depth === 0) {
+                if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+                buffer = '';
+                continue;
+            }
+        }
+        buffer += char;
+    }
+    if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+    entries.forEach(function (entry) {
+        var splitterIndex = entry.indexOf('=');
+        if (splitterIndex === -1) { return; }
+        var key = entry.substring(0, splitterIndex).trim();
+        var value = entry.substring(splitterIndex + 1).trim();
+        result[key] = value;
+    });
+    return result;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedArrayLiteral = function (valueText) {
+    var items = [];
+    if (!DRB.Utilities.HasValue(valueText)) { return items; }
+    var trimmed = valueText.trim();
+    if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) { return items; }
+    var inner = trimmed.substring(1, trimmed.length - 1);
+    var buffer = '';
+    var inQuotes = false;
+    for (var i = 0; i < inner.length; i++) {
+        var char = inner[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < inner.length && inner[i + 1] === "'") { buffer += "''"; i++; continue; }
+            inQuotes = !inQuotes;
+            buffer += char;
+            continue;
+        }
+        if (char === ',' && inQuotes === false) {
+            if (buffer.trim().length > 0) { items.push(DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(buffer.trim())); }
+            buffer = '';
+            continue;
+        }
+        buffer += char;
+    }
+    if (buffer.trim().length > 0) { items.push(DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(buffer.trim())); }
+    return items;
+};
+
+DRB.Logic.RetrieveMultiple.SplitCapturedSimpleArguments = function (argsText) {
+    var args = [];
+    if (!DRB.Utilities.HasValue(argsText)) { return args; }
+    var buffer = '';
+    var depth = 0;
+    var inQuotes = false;
+    for (var i = 0; i < argsText.length; i++) {
+        var char = argsText[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < argsText.length && argsText[i + 1] === "'") { buffer += "''"; i++; continue; }
+            inQuotes = !inQuotes;
+            buffer += char;
+            continue;
+        }
+        if (inQuotes === false) {
+            if (char === '(') { depth++; buffer += char; continue; }
+            if (char === ')') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+            if (char === ',' && depth === 0) {
+                if (buffer.trim().length > 0) { args.push(buffer.trim()); }
+                buffer = '';
+                continue;
+            }
+        }
+        buffer += char;
+    }
+    if (buffer.trim().length > 0) { args.push(buffer.trim()); }
+    return args;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedSimpleFunction = function (segment) {
+    var match = segment.match(/^([^\\(]+)\\((.*)\\)$/);
+    if (!match) { return null; }
+    var operator = match[1].trim();
+    var argsText = match[2];
+    var args = DRB.Logic.RetrieveMultiple.SplitCapturedSimpleArguments(argsText);
+    if (args.length === 0) { return null; }
+    var condition = { fieldPath: args[0].trim(), operator: operator, requiredValue: args.length > 1 };
+    if (args.length > 1) { condition.value = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args[1]); }
+    if (args.length > 2) { condition.value2 = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(args[2]); }
+    return condition;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedBinaryCondition = function (segment) {
+    var binary = DRB.Logic.RetrieveMultiple.FindCapturedBinaryOperator(segment);
+    if (!binary) { return null; }
+    var condition = {
+        fieldPath: binary.left.trim(),
+        operator: binary.operator,
+        requiredValue: binary.right.toLowerCase() !== 'null'
+    };
+    if (condition.requiredValue === true) {
+        condition.value = DRB.Logic.RetrieveMultiple.ParseCapturedLiteral(binary.right);
+    }
+    return condition;
+};
+
+DRB.Logic.RetrieveMultiple.FindCapturedBinaryOperator = function (segment) {
+    var operators = [' eq ', ' ne ', ' gt ', ' ge ', ' lt ', ' le '];
+    var depth = 0;
+    var inQuotes = false;
+    var lowerSegment = segment.toLowerCase();
+    for (var i = 0; i < segment.length; i++) {
+        var char = segment[i];
+        if (char === "'") {
+            if (inQuotes === true && i + 1 < segment.length && segment[i + 1] === "'") { i++; continue; }
+            inQuotes = !inQuotes;
+            continue;
+        }
+        if (inQuotes === true) { continue; }
+        if (char === '(') { depth++; continue; }
+        if (char === ')') { depth = Math.max(0, depth - 1); continue; }
+        if (depth !== 0) { continue; }
+        for (var opIndex = 0; opIndex < operators.length; opIndex++) {
+            var op = operators[opIndex];
+            if (lowerSegment.substring(i).indexOf(op) === 0) {
+                var left = segment.substring(0, i).trim();
+                var right = segment.substring(i + op.length).trim();
+                if (left.length === 0 || right.length === 0) { return null; }
+                return { left: left, operator: op.trim(), right: right };
+            }
+        }
+    }
+    return null;
+};
+
+DRB.Logic.RetrieveMultiple.ParseCapturedLiteral = function (valueText, skipDecode) {
+    if (!DRB.Utilities.HasValue(valueText)) { return null; }
+    var trimmed = valueText.trim();
+    if (trimmed.length === 0) { return null; }
+    var lowered = trimmed.toLowerCase();
+    if (lowered === 'null') { return null; }
+    if (lowered === 'true') { return true; }
+    if (lowered === 'false') { return false; }
+    if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+        var inner = trimmed.substring(1, trimmed.length - 1);
+        inner = inner.replace(/''/g, "'");
+        if (skipDecode !== true) {
+            try { inner = decodeURIComponent(inner); } catch { }
+        }
+        return inner;
+    }
+    if (!isNaN(Number(trimmed))) {
+        if (trimmed.indexOf('.') > -1) { return parseFloat(trimmed); }
+        return parseInt(trimmed, 10);
+    }
+    return trimmed;
+};
+
+DRB.Logic.RetrieveMultiple.ResolveCapturedFieldMetadata = function (fieldPath) {
+    if (!DRB.Utilities.HasValue(fieldPath)) { return null; }
+    var cleanedPath = fieldPath.trim();
+    var relationshipInfo = null;
+    var column = null;
+    var managedValueSuffix = false;
+    var manyToOne = Array.isArray(DRB.Metadata.CurrentManyToOne) ? DRB.Metadata.CurrentManyToOne : [];
+    if (cleanedPath.indexOf('/') === -1) {
+        if (cleanedPath.toLowerCase().endsWith('/value')) {
+            cleanedPath = cleanedPath.substring(0, cleanedPath.length - 6);
+            managedValueSuffix = true;
+        }
+        column = DRB.Logic.RetrieveMultiple.FindCapturedColumn(DRB.Metadata.CurrentColumns, cleanedPath);
+    } else {
+        var pathParts = cleanedPath.split('/');
+        var navigation = pathParts.shift();
+        var columnPath = pathParts.join('/');
+        if (columnPath.toLowerCase().endsWith('/value')) {
+            columnPath = columnPath.substring(0, columnPath.length - 6);
+            managedValueSuffix = true;
+        }
+        var relationship = DRB.Utilities.GetRecordByProperty(manyToOne, 'NavigationProperty', navigation);
+        if (!DRB.Utilities.HasValue(relationship)) { return null; }
+        var targetTable = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, relationship.TargetTable);
+        if (!DRB.Utilities.HasValue(targetTable)) { return null; }
+        column = DRB.Logic.RetrieveMultiple.FindCapturedColumn(targetTable.Columns, columnPath);
+        if (!DRB.Utilities.HasValue(column)) { return null; }
+        relationshipInfo = {
+            schemaName: relationship.SchemaName,
+            navigationProperty: relationship.NavigationProperty,
+            navigationAttribute: relationship.NavigationAttribute,
+            targetEntity: relationship.TargetTable,
+            targetEntityLabel: relationship.TargetTableName || relationship.TargetTable,
+            targetEntityPrimaryIdField: targetTable.PrimaryIdAttribute
+        };
+    }
+    if (!DRB.Utilities.HasValue(column)) { return null; }
+    if (managedValueSuffix === true && column.AttributeType !== 'ManagedProperty') { return null; }
+    return { column: column, relationship: relationshipInfo };
+};
+
+DRB.Logic.RetrieveMultiple.FindCapturedColumn = function (columns, name) {
+    if (!Array.isArray(columns)) { return null; }
+    var comparer = name.toLowerCase();
+    var column = DRB.Utilities.GetRecordByProperty(columns, 'ODataName', name);
+    if (DRB.Utilities.HasValue(column)) { return column; }
+    for (var i = 0; i < columns.length; i++) {
+        var current = columns[i];
+        if (!DRB.Utilities.HasValue(current)) { continue; }
+        if (DRB.Utilities.HasValue(current.ODataName) && current.ODataName.toLowerCase() === comparer) { return current; }
+        if (DRB.Utilities.HasValue(current.LogicalName) && current.LogicalName.toLowerCase() === comparer) { return current; }
+    }
+    return null;
+};
+
+DRB.Logic.RetrieveMultiple.ConvertCapturedAstToCriteria = function (astNode) {
+    if (!DRB.Utilities.HasValue(astNode)) { return null; }
+    if (astNode.type === 'condition') {
+        var singleField = DRB.Logic.RetrieveMultiple.ConvertCapturedConditionToFilterField(astNode.condition);
+        if (!singleField) { return null; }
+        return { filterType: 'fields', filterFieldsLogic: 'and', filterFields: [singleField] };
+    }
+    if (astNode.type === 'group') {
+        var allConditions = astNode.children.every(function (child) { return child.type === 'condition'; });
+        if (allConditions === true) {
+            var fields = [];
+            for (var i = 0; i < astNode.children.length; i++) {
+                var field = DRB.Logic.RetrieveMultiple.ConvertCapturedConditionToFilterField(astNode.children[i].condition);
+                if (!field) { return null; }
+                fields.push(field);
+            }
+            return { filterType: 'fields', filterFieldsLogic: astNode.logic || 'and', filterFields: fields };
+        }
+        var groups = [];
+        for (var childIndex = 0; childIndex < astNode.children.length; childIndex++) {
+            var criteria = DRB.Logic.RetrieveMultiple.ConvertCapturedAstToCriteria(astNode.children[childIndex]);
+            if (!criteria) { return null; }
+            groups.push(criteria);
+        }
+        if (groups.length === 1) { return groups[0]; }
+        return { filterType: 'groups', filterGroupsLogic: astNode.logic || 'and', filterGroups: groups };
+    }
+    return null;
+};
+
+DRB.Logic.RetrieveMultiple.ConvertCapturedConditionToFilterField = function (condition) {
+    if (!DRB.Utilities.HasValue(condition) || !DRB.Utilities.HasValue(condition.fieldPath)) { return null; }
+    var metadata = DRB.Logic.RetrieveMultiple.ResolveCapturedFieldMetadata(condition.fieldPath);
+    if (!metadata) { return null; }
+    var column = metadata.column;
+    var filterField = {
+        logicalName: column.LogicalName,
+        schemaName: column.SchemaName,
+        label: column.Name,
+        type: column.AttributeType,
+        oDataName: column.ODataName,
+        operator: condition.operator,
+        requiredValue: condition.requiredValue === true,
+        value: null
+    };
+    if (metadata.relationship) { filterField.relationship = metadata.relationship; }
+    if (column.AttributeType === 'DateTime' && DRB.Utilities.HasValue(column.AdditionalProperties) && DRB.Utilities.HasValue(column.AdditionalProperties.DateTimeBehavior)) {
+        filterField.dateTimeBehavior = column.AdditionalProperties.DateTimeBehavior;
+    }
+    if (condition.requiredValue === true && condition.value !== undefined) {
+        filterField.value = DRB.Logic.RetrieveMultiple.NormalizeCapturedValueForField(condition.value, column, condition);
+    }
+    if (condition.requiredValue === true && condition.value2 !== undefined) {
+        filterField.value2 = DRB.Logic.RetrieveMultiple.NormalizeCapturedValueForField(condition.value2, column, condition);
+    }
+    return filterField;
+};
+
+DRB.Logic.RetrieveMultiple.NormalizeCapturedValueForField = function (value, column, condition) {
+    if (!DRB.Utilities.HasValue(column)) { return value; }
+    if (!DRB.Utilities.HasValue(value)) { return value; }
+    switch (column.AttributeType) {
+        case 'Integer':
+        case 'BigInt':
+        case 'Double':
+        case 'Decimal':
+        case 'Money':
+            var numeric = Number(value);
+            return isNaN(numeric) ? value : numeric;
+        case 'Boolean':
+            if (typeof value === 'boolean') { return value; }
+            return value.toString().toLowerCase() === 'true';
+        case 'Picklist':
+        case 'State':
+        case 'Status':
+            return value.toString();
+        case 'MultiPicklist':
+            return Array.isArray(value) ? value : [value];
+        case 'Lookup':
+        case 'Owner':
+        case 'Customer':
+            if (typeof value === 'object') { return value; }
+            var lookupValue = { id: value };
+            if (DRB.Utilities.HasValue(column.AdditionalProperties) && Array.isArray(column.AdditionalProperties.Targets) && column.AdditionalProperties.Targets.length === 1) {
+                lookupValue.entityType = column.AdditionalProperties.Targets[0];
+            }
+            return lookupValue;
+        default:
+            return value;
+    }
+};
 
 /**
  * Retrieve Multiple - Configure Order Columns
@@ -14664,7 +15555,8 @@ DRB.Logic.RetrieveMultiple.Start = function () {
     }
     // #endregion
 }
-// #endregion  
+// #endregion
+  
  
 // #region DRB.Logic.SetColumns
 // Set Functions (used in Create, Update)
@@ -17853,7 +18745,7 @@ DRB.Collection.Save = function () {
 // #endregion
   
  
-// #region DRB.Initialize
+﻿// #region DRB.Initialize
 /**
  * Set Default Settings
  */
@@ -18026,6 +18918,7 @@ DRB.SetDefaultSettings = function () {
     // #endregion
 
     DRB.Settings.TimeoutDelay = 500; // used in the setTimout calls
+    DRB.Settings.IsInitialized = false;
 }
 
 /**
@@ -18297,128 +19190,1843 @@ if (typeof window !== "undefined" && typeof window.__drbApplyTheme !== "function
 }
 
 // Capture injection entrypoint for WebView host
-if (typeof window !== "undefined" && typeof window.__drbReceiveCapturedRequest !== "function") {
-    window.__drbReceiveCapturedRequest = function (payload) {
-        if (!window.DRB) { return false; }
-        if (!DRB.Injection) { DRB.Injection = {}; }
+if (typeof window !== "undefined") {
+    var __drbPendingCapturedRequests = [];
 
-        if (!Array.isArray(DRB.Injection.queue)) {
-            DRB.Injection.queue = [];
+    window.__drbAddPendingCapturedRequest = function (payload) {
+        try {
+            if (!DRB.Utilities.HasValue(payload)) { return; }
+            __drbPendingCapturedRequests.push(payload);
+        } catch (ex) {
+            console.error(ex);
         }
-
-        if (!DRB.Injection.applyRequest) {
-            DRB.Injection.applyRequest = function (request) {
-                if (!request) { return false; }
-                if (!DRB.DOM || !DRB.DOM.TreeView) { return false; }
-                var tree = $("#" + DRB.DOM.TreeView.Id).jstree(true);
-                if (!tree) { return false; }
-
-                var roots = tree.get_node("#").children;
-                if (!roots || roots.length === 0) {
-                    DRB.Collection.CreateDefault();
-                    roots = tree.get_node("#").children;
-                }
-
-                var parent = roots.length > 0 ? tree.get_node(roots[0]) : tree.get_node("#");
-                var name = request.requestName || "New Request";
-                var nodeId = tree.create_node(parent, { type: "request", text: name }, "last");
-                var node = tree.get_node(nodeId);
-                if (!node) { return false; }
-
-                if (!node.data) { node.data = { endpoint: "webapi", requestType: "", configuration: {} }; }
-                if (!node.data.configuration) { node.data.configuration = {}; }
-
-                node.data.endpoint = "webapi";
-                node.data.requestType = (request.requestType || "").toLowerCase();
-
-                var config = node.data.configuration;
-                if (request.primaryId) { config.primaryId = request.primaryId; }
-
-                var table = null;
-                if (request.primaryEntityLogicalName && DRB.Metadata && Array.isArray(DRB.Metadata.Tables)) {
-                    table = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, request.primaryEntityLogicalName);
-                }
-                if (!table && request.entitySetName && DRB.Metadata && Array.isArray(DRB.Metadata.Tables)) {
-                    for (var i = 0; i < DRB.Metadata.Tables.length; i++) {
-                        if (DRB.Metadata.Tables[i].EntitySetName === request.entitySetName) {
-                            table = DRB.Metadata.Tables[i];
-                            break;
-                        }
-                    }
-                }
-                if (table) {
-                    config.primaryEntity = { logicalName: table.LogicalName, schemaName: table.SchemaName, label: table.Name, entitySetName: table.EntitySetName };
-                } else if (request.primaryEntityLogicalName || request.entitySetName) {
-                    config.primaryEntity = {
-                        logicalName: request.primaryEntityLogicalName || "",
-                        schemaName: "",
-                        label: request.primaryEntityLogicalName || request.entitySetName || "",
-                        entitySetName: request.entitySetName || ""
-                    };
-                }
-
-                if (request.queryType) { config.queryType = request.queryType; }
-                if (request.fetchXml) { config.fetchXML = request.fetchXml; }
-
-                tree.open_node(parent);
-                tree.deselect_all();
-                tree.select_node(node);
-                return true;
-            };
-        }
-
-        if (!DRB.Injection.isReady) {
-            DRB.Injection.isReady = function () {
-                return DRB.Metadata && Array.isArray(DRB.Metadata.Tables) && DRB.Metadata.Tables.length > 0;
-            };
-        }
-
-        if (!DRB.Injection.flushQueue) {
-            DRB.Injection.flushQueue = function () {
-                if (!DRB.Injection.isReady()) { return false; }
-                while (DRB.Injection.queue.length > 0) {
-                    var next = DRB.Injection.queue.shift();
-                    DRB.Injection.applyRequest(next);
-                }
-                return true;
-            };
-        }
-
-        if (!DRB.Injection.scheduleFlush) {
-            DRB.Injection.scheduleFlush = function () {
-                if (DRB.Injection.flushTimer) { return; }
-                DRB.Injection.flushTimer = setTimeout(function () {
-                    DRB.Injection.flushTimer = null;
-                    if (!DRB.Injection.flushQueue()) {
-                        DRB.Injection.scheduleFlush();
-                    }
-                }, 300);
-            };
-        }
-
-        if (!DRB.Injection.isReady()) {
-            DRB.Injection.queue.push(payload);
-            DRB.Injection.scheduleFlush();
-            return false;
-        }
-
-        return DRB.Injection.applyRequest(payload);
     };
 
-    if (window.chrome && chrome.webview && typeof chrome.webview.addEventListener === "function") {
-        chrome.webview.addEventListener("message", function (event) {
-            var data = event && event.data ? event.data : null;
-            if (typeof data === "string") {
-                try { data = JSON.parse(data); } catch { }
+    window.__drbFlushPendingCapturedRequests = function () {
+        try {
+            if (__drbPendingCapturedRequests.length === 0) { return; }
+            if (!DRB.Utilities.HasValue(DRB.Settings) || DRB.Settings.IsInitialized !== true) { return; }
+            var pending = __drbPendingCapturedRequests.slice();
+            __drbPendingCapturedRequests.length = 0;
+            pending.forEach(function (pendingPayload) {
+                window.__drbReceiveCapturedRequest(pendingPayload);
+            });
+        } catch (ex) {
+            console.error(ex);
+        }
+    };
+
+    window.__drbReceiveCapturedRequest = function (payload) {
+        try {
+            if (!DRB.Utilities.HasValue(payload)) { return; }
+            if (!DRB.Utilities.HasValue(DRB.Settings) || DRB.Settings.IsInitialized !== true) {
+                window.__drbAddPendingCapturedRequest(payload);
+                return;
             }
-            if (!data || !data.action) { return; }
-            if (data.action === "captured-request") {
-                window.__drbReceiveCapturedRequest(data.data || {});
+            var treeElement = $("#" + DRB.DOM.TreeView.Id);
+            if (treeElement.length === 0) { return; }
+            var tree = treeElement.jstree(true);
+            if (!DRB.Utilities.HasValue(tree)) { return; }
+
+            var hasCollectionNode = function (node) {
+                return DRB.Utilities.HasValue(node) && DRB.Utilities.HasValue(node.children) && node.children.length > 0;
+            };
+
+            var root = tree.get_node("#");
+            if (!hasCollectionNode(root)) {
+                var resumeAfterReady = (function () {
+                    var invoked = false;
+                    return function () {
+                        if (invoked === true) { return; }
+                        invoked = true;
+                        setTimeout(function () { window.__drbReceiveCapturedRequest(payload); }, 0);
+                    };
+                })();
+
+                treeElement.one("refresh.jstree", resumeAfterReady);
+                treeElement.one("ready.jstree", resumeAfterReady);
+
+                if (treeElement.hasClass("jstree-loading") === true) {
+                    return;
+                }
+
+                DRB.Collection.CreateDefault();
+                return;
+            }
+            var parentId = root.children[0];
+            var requestName = DRB.Utilities.HasValue(payload.requestName) ? payload.requestName : "Captured request";
+            var nodeData = { endpoint: "webapi", requestType: payload.requestType || "", configuration: {}, capture: payload };
+            var newNodeId = tree.create_node(parentId, { type: "request", text: requestName, data: nodeData }, "last");
+            if (!DRB.Utilities.HasValue(newNodeId)) { return; }
+            tree.open_node(parentId);
+            tree.deselect_all();
+            tree.select_node(newNodeId);
+            setTimeout(function () { window.__drbPopulateCapturedRequest(newNodeId, payload); }, 400);
+        } catch (ex) {
+            console.error(ex);
+        }
+    };
+
+    window.__drbResolveCapturedRequestType = function (payload) {
+        try {
+            if (!DRB.Utilities.HasValue(payload)) { return ""; }
+            if (DRB.Utilities.HasValue(payload.requestType)) { return payload.requestType; }
+            return window.__drbInferRequestTypeFromOperation(payload);
+        } catch (ex) {
+            console.error(ex);
+            return "";
+        }
+    };
+
+    window.__drbInferRequestTypeFromOperation = function (payload) {
+        try {
+            if (!DRB.Utilities.HasValue(payload) || !DRB.Utilities.HasValue(payload.dataverseOperationName)) { return ""; }
+            var method = payload.method || payload.Method || "";
+            method = method ? method.toUpperCase() : "";
+            var isFunction = method === "GET";
+            var isCustom = payload.dataverseOperationName.indexOf("_") > 0;
+            if (isFunction) { return isCustom ? "executecustomapi" : "executefunction"; }
+            return isCustom ? "executecustomaction" : "executeaction";
+        } catch (inferError) {
+            console.error(inferError);
+            return "";
+        }
+    };
+
+    window.__drbIsDataverseRequestType = function (requestType) {
+        if (!DRB.Utilities.HasValue(requestType)) { return false; }
+        var normalized = requestType.toLowerCase();
+        return normalized === "executeaction" || normalized === "executefunction" ||
+            normalized === "executecustomaction" || normalized === "executecustomapi";
+    };
+
+    window.__drbIsDataverseMetadataReady = function (requestType) {
+        try {
+            if (!window.__drbIsDataverseRequestType(requestType)) { return true; }
+            if (typeof DRB === "undefined" || !DRB.Utilities.HasValue(DRB.Metadata)) { return false; }
+            var normalized = requestType.toLowerCase();
+            switch (normalized) {
+                case "executecustomapi":
+                    return DRB.Metadata.DataverseCustomAPIsLoaded === true;
+                case "executecustomaction":
+                    return DRB.Metadata.DataverseCustomActionsLoaded === true;
+                case "executeaction":
+                case "executefunction":
+                    return DRB.Metadata.DataverseMetadataLoaded === true;
+                default:
+                    return true;
+            }
+        } catch (metadataError) {
+            console.error(metadataError);
+            return false;
+        }
+    };
+
+    window.__drbDeferCapturedDataverseRequest = function (requestType, nodeId, payload) {
+        try {
+            if (!DRB.Utilities.HasValue(requestType)) { return; }
+            if (!window.__drbPendingDataverseMetadata) { window.__drbPendingDataverseMetadata = {}; }
+            var normalized = requestType.toLowerCase();
+            var queue = window.__drbPendingDataverseMetadata[normalized];
+            if (!Array.isArray(queue)) { queue = []; }
+            var replaced = false;
+            for (var i = 0; i < queue.length; i++) {
+                if (queue[i].nodeId === nodeId) {
+                    queue[i] = { nodeId: nodeId, payload: payload };
+                    replaced = true;
+                    break;
+                }
+            }
+            if (replaced !== true) {
+                queue.push({ nodeId: nodeId, payload: payload });
+            }
+            window.__drbPendingDataverseMetadata[normalized] = queue;
+        } catch (deferError) {
+            console.error(deferError);
+        }
+    };
+
+    window.__drbOnDataverseMetadataReady = function (requestType) {
+        try {
+            if (!window.__drbPendingDataverseMetadata) { return; }
+            var normalized = DRB.Utilities.HasValue(requestType) ? requestType.toLowerCase() : "";
+            var keysToFlush = [];
+            if (normalized === "executeaction" || normalized === "executefunction") {
+                ["executeaction", "executefunction"].forEach(function (key) {
+                    if (window.__drbPendingDataverseMetadata[key]) { keysToFlush.push(key); }
+                });
+            } else if (normalized.length > 0) {
+                if (window.__drbPendingDataverseMetadata[normalized]) { keysToFlush.push(normalized); }
+            } else {
+                keysToFlush = Object.keys(window.__drbPendingDataverseMetadata);
+            }
+            keysToFlush.forEach(function (key) {
+                var queue = window.__drbPendingDataverseMetadata[key];
+                if (!Array.isArray(queue) || queue.length === 0) { return; }
+                delete window.__drbPendingDataverseMetadata[key];
+                queue.forEach(function (entry) {
+                    setTimeout(function () {
+                        try {
+                            if (typeof window.__drbPopulateCapturedRequest === "function") {
+                                window.__drbPopulateCapturedRequest(entry.nodeId, entry.payload);
+                            }
+                        } catch (replayError) {
+                            console.error(replayError);
+                        }
+                    }, 0);
+                });
+            });
+        } catch (notifyError) {
+            console.error(notifyError);
+        }
+    };
+
+    window.__drbScheduleCapturedDataverseExecuteSelection = function (nodeId, payload, attempt) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            if (!DRB.Utilities.HasValue(payload.dataverseOperationName)) { return; }
+            if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || DRB.Metadata.CurrentNode.id !== nodeId) { return; }
+
+            if (!payload.__drbDataverseSelectionStart) { payload.__drbDataverseSelectionStart = Date.now(); }
+            var elapsed = Date.now() - payload.__drbDataverseSelectionStart;
+            var maxWait = 120000;
+            if (elapsed > maxWait) {
+                delete payload.__drbDataverseSelectionStart;
+                return;
+            }
+
+            var dropdown = $("#" + DRB.DOM.DataverseExecute.Dropdown.Id);
+            if (dropdown.length === 0) {
+                setTimeout(function () { window.__drbScheduleCapturedDataverseExecuteSelection(nodeId, payload, (attempt || 0) + 1); }, 300);
+                return;
+            }
+
+            var previousValue = dropdown.val();
+            dropdown.val(payload.dataverseOperationName);
+            if (dropdown.val() === payload.dataverseOperationName) {
+                dropdown.change();
+                delete payload.__drbDataverseSelectionStart;
+                return;
+            }
+
+            dropdown.val(previousValue);
+            setTimeout(function () { window.__drbScheduleCapturedDataverseExecuteSelection(nodeId, payload, (attempt || 0) + 1); }, 300);
+        } catch (dataverseSelectionError) {
+            console.error(dataverseSelectionError);
+        }
+    };
+
+    window.__drbCacheCapturedDataverseParameters = function (nodeId, payload) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || DRB.Metadata.CurrentNode.id !== nodeId) { return; }
+            var parsedBody = window.__drbParseCapturedRequestBody(payload);
+            if (!DRB.Utilities.HasValue(parsedBody) || typeof parsedBody !== "object") { parsedBody = {}; }
+            DRB.Metadata.CurrentNode.data.__capturedDataverseParameters = parsedBody;
+            var bindingEntitySet = payload.entitySetName;
+            if (!DRB.Utilities.HasValue(bindingEntitySet) && DRB.Utilities.HasValue(payload.primaryEntityLogicalName) && Array.isArray(DRB.Metadata.Tables)) {
+                var tableRecord = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, payload.primaryEntityLogicalName);
+                if (DRB.Utilities.HasValue(tableRecord) && DRB.Utilities.HasValue(tableRecord.EntitySetName)) {
+                    bindingEntitySet = tableRecord.EntitySetName;
+                }
+            }
+            DRB.Metadata.CurrentNode.data.__capturedDataverseBinding = {
+                logicalName: payload.primaryEntityLogicalName || "",
+                primaryId: payload.primaryId || "",
+                entitySetName: bindingEntitySet || ""
+            };
+        } catch (cacheError) {
+            console.error(cacheError);
+        }
+    };
+
+    window.__drbBuildCapturedDataverseParameters = function (dvExecute) {
+        try {
+            if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return null; }
+            var captured = DRB.Metadata.CurrentNode.data.__capturedDataverseParameters;
+            if (!DRB.Utilities.HasValue(captured)) { captured = {}; }
+
+            var results = [];
+            dvExecute.Parameters.forEach(function (parameter) {
+                var rawValue = captured[parameter.Name];
+                var includeValue = parameter.Optional !== true;
+                var convertedValue = null;
+                var hasCapturedValue = Object.prototype.hasOwnProperty.call(captured, parameter.Name);
+                if (hasCapturedValue) {
+                    includeValue = true;
+                    convertedValue = window.__drbConvertCapturedDataverseValue(parameter.Type, rawValue);
+                } else {
+                    var derivedValue = window.__drbDeriveDataverseBindingValue(parameter);
+                    if (DRB.Utilities.HasValue(derivedValue)) {
+                        includeValue = true;
+                        convertedValue = derivedValue;
+                    }
+                }
+                results.push({
+                    name: parameter.Name,
+                    type: parameter.Type,
+                    optional: parameter.Optional === true,
+                    include: includeValue,
+                    value: convertedValue
+                });
+            });
+
+            DRB.Metadata.CurrentNode.data.__capturedDataverseParameters = null;
+            DRB.Metadata.CurrentNode.data.__capturedDataverseBinding = null;
+            return results;
+        } catch (buildError) {
+            console.error(buildError);
+            return null;
+        }
+    };
+
+    window.__drbConvertCapturedDataverseValue = function (parameterType, rawValue) {
+        try {
+            if (!DRB.Utilities.HasValue(parameterType)) { return null; }
+            if (parameterType.indexOf("Collection(") === 0) {
+                var innerType = parameterType.substring("Collection(".length, parameterType.length - 1);
+                if (!Array.isArray(rawValue)) {
+                    if (rawValue && Array.isArray(rawValue.value)) { rawValue = rawValue.value; }
+                    else if (DRB.Utilities.HasValue(rawValue)) { rawValue = [rawValue]; }
+                    else { rawValue = []; }
+                }
+                var converted = [];
+                rawValue.forEach(function (entry) {
+                    var singleValue = window.__drbConvertCapturedDataverseSingleValue(innerType, entry);
+                    if (typeof singleValue !== "undefined" && singleValue !== null) {
+                        converted.push(singleValue);
+                    }
+                });
+                return converted;
+            }
+
+            return window.__drbConvertCapturedDataverseSingleValue(parameterType, rawValue);
+        } catch (convertError) {
+            console.error(convertError);
+            return null;
+        }
+    };
+
+    window.__drbConvertCapturedDataverseSingleValue = function (parameterType, rawValue) {
+        if (!DRB.Utilities.HasValue(parameterType)) { return null; }
+        if (!DRB.Utilities.HasValue(rawValue)) { return null; }
+
+        var enumType = DRB.Utilities.GetRecordById(DRB.Metadata.DataverseEnumTypes, parameterType);
+        if (DRB.Utilities.HasValue(enumType)) {
+            if (enumType.IsFlags === true) {
+                if (Array.isArray(rawValue)) {
+                    var members = [];
+                    rawValue.forEach(function (memberValue) {
+                        members.push({ value: memberValue });
+                    });
+                    return { members: members };
+                }
+                return { memberValue: window.__drbCoerceNumber(rawValue) };
+            }
+            return { memberValue: window.__drbCoerceNumber(rawValue) };
+        }
+
+        if (parameterType === "mscrm.crmbaseentity") {
+            return window.__drbConvertCapturedDataverseEntityValue(null, rawValue);
+        }
+
+        if (parameterType.indexOf("mscrm.") === 0) {
+            var logicalName = parameterType.substring(6);
+            var table = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, logicalName);
+            if (DRB.Utilities.HasValue(table)) {
+                return window.__drbConvertCapturedDataverseEntityValue(logicalName, rawValue);
+            }
+            return null; // unsupported complex type
+        }
+
+        switch (parameterType) {
+            case "Edm.Boolean":
+                return window.__drbCoerceBoolean(rawValue);
+            case "Edm.Guid":
+            case "Edm.String":
+                return rawValue.toString();
+            case "Edm.Int32":
+            case "Edm.Int64":
+                return window.__drbCoerceNumber(rawValue);
+            case "Edm.Decimal":
+            case "Edm.Double":
+                return window.__drbCoerceNumber(rawValue, true);
+            case "Edm.DateTimeOffset":
+                return rawValue;
+            default:
+                return rawValue;
+        }
+    };
+
+    window.__drbConvertCapturedDataverseEntityValue = function (explicitLogicalName, rawValue) {
+        if (!DRB.Utilities.HasValue(rawValue)) { return null; }
+
+        var explicitName = explicitLogicalName ? explicitLogicalName.toLowerCase() : null;
+        if (typeof rawValue === "string") {
+            if (!DRB.Utilities.HasValue(explicitName)) { return null; }
+            var primaryIdFallback = window.__drbResolvePrimaryIdAttribute(explicitName);
+            return { id: rawValue, entityType: explicitName, primaryIdField: primaryIdFallback };
+        }
+
+        var logicalName = explicitName || window.__drbInferLogicalNameFromCapturedValue(rawValue);
+        if (!DRB.Utilities.HasValue(logicalName)) { return null; }
+        var primaryId = window.__drbResolvePrimaryIdAttribute(logicalName);
+        var idValue = null;
+        if (DRB.Utilities.HasValue(primaryId)) {
+            idValue = rawValue[primaryId] || rawValue[primaryId.toLowerCase()];
+        }
+
+        if (!DRB.Utilities.HasValue(idValue)) {
+            Object.keys(rawValue).forEach(function (key) {
+                if (idValue) { return; }
+                if (key.toLowerCase().endsWith("id") && DRB.Utilities.HasValue(rawValue[key])) {
+                    idValue = rawValue[key];
+                    primaryId = key;
+                }
+            });
+        }
+
+        if (!DRB.Utilities.HasValue(idValue)) { return null; }
+        return { id: idValue, entityType: logicalName, primaryIdField: primaryId || (logicalName + "id") };
+    };
+
+    window.__drbGetCapturedDataverseBindingInfo = function () {
+        var logicalName = "";
+        var entitySetName = "";
+        var primaryId = "";
+
+        if (DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) && DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) {
+            var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+            var configuredPrimary = configuration.primaryEntity;
+            if (DRB.Utilities.HasValue(configuredPrimary)) {
+                if (typeof configuredPrimary === "string") { logicalName = configuredPrimary; }
+                else {
+                    if (DRB.Utilities.HasValue(configuredPrimary.logicalName)) { logicalName = configuredPrimary.logicalName; }
+                    if (DRB.Utilities.HasValue(configuredPrimary.entitySetName)) { entitySetName = configuredPrimary.entitySetName; }
+                }
+            }
+            if (!DRB.Utilities.HasValue(logicalName) && DRB.Utilities.HasValue(configuration.primaryEntityLogicalName)) {
+                logicalName = configuration.primaryEntityLogicalName;
+            }
+            if (!DRB.Utilities.HasValue(entitySetName) && DRB.Utilities.HasValue(configuration.primaryEntitySetName)) {
+                entitySetName = configuration.primaryEntitySetName;
+            }
+            if (DRB.Utilities.HasValue(configuration.primaryId)) { primaryId = configuration.primaryId; }
+        }
+
+        var cachedBinding = null;
+        if (DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) && DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) {
+            cachedBinding = DRB.Metadata.CurrentNode.data.__capturedDataverseBinding;
+        }
+
+        if (DRB.Utilities.HasValue(cachedBinding)) {
+            if (!DRB.Utilities.HasValue(logicalName) && DRB.Utilities.HasValue(cachedBinding.logicalName)) { logicalName = cachedBinding.logicalName; }
+            if (!DRB.Utilities.HasValue(entitySetName) && DRB.Utilities.HasValue(cachedBinding.entitySetName)) { entitySetName = cachedBinding.entitySetName; }
+            if (!DRB.Utilities.HasValue(primaryId) && DRB.Utilities.HasValue(cachedBinding.primaryId)) { primaryId = cachedBinding.primaryId; }
+        }
+
+        return { logicalName: logicalName || "", entitySetName: entitySetName || "", primaryId: primaryId || "" };
+    };
+
+    window.__drbDeriveDataverseBindingValue = function (parameter) {
+        try {
+            if (!DRB.Utilities.HasValue(parameter)) { return null; }
+            var parameterName = DRB.Utilities.HasValue(parameter.Name) ? parameter.Name.toLowerCase() : "";
+            if (parameterName.length === 0) { return null; }
+
+            var supportedNames = ["entity", "target"];
+            if (supportedNames.indexOf(parameterName) === -1) { return null; }
+
+            var binding = window.__drbGetCapturedDataverseBindingInfo();
+            if (!DRB.Utilities.HasValue(binding.logicalName) || !DRB.Utilities.HasValue(binding.primaryId)) { return null; }
+
+            var logicalName = binding.logicalName.toLowerCase();
+            var parameterType = DRB.Utilities.HasValue(parameter.Type) ? parameter.Type.toLowerCase() : "";
+            var expectedType = "mscrm." + logicalName;
+            if (parameterType.length > 0 && parameterType !== expectedType && parameterType !== "mscrm.crmbaseentity") { return null; }
+
+            var primaryIdValue = binding.primaryId.toString().replace(/[{}]/g, "");
+            var primaryIdField = window.__drbResolvePrimaryIdAttribute(logicalName);
+
+            return {
+                id: primaryIdValue,
+                entityType: logicalName,
+                primaryIdField: primaryIdField || (logicalName + "id")
+            };
+        } catch (bindingError) {
+            console.error(bindingError);
+            return null;
+        }
+    };
+
+    window.__drbInferLogicalNameFromCapturedValue = function (rawValue) {
+        if (!DRB.Utilities.HasValue(rawValue)) { return null; }
+        if (DRB.Utilities.HasValue(rawValue["@odata.type"])) {
+            var typeName = rawValue["@odata.type"]; // Microsoft.Dynamics.CRM.logical
+            if (DRB.Utilities.HasValue(typeName) && typeName.indexOf("Microsoft.Dynamics.CRM.") > -1) {
+                return typeName.substring(typeName.lastIndexOf('.') + 1).toLowerCase();
+            }
+        }
+        return null;
+    };
+
+    window.__drbResolvePrimaryIdAttribute = function (logicalName) {
+        if (!DRB.Utilities.HasValue(logicalName)) { return null; }
+        var table = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, logicalName);
+        if (DRB.Utilities.HasValue(table)) { return table.PrimaryIdAttribute; }
+        return logicalName + "id";
+    };
+
+    window.__drbCoerceBoolean = function (rawValue) {
+        if (typeof rawValue === "boolean") { return rawValue; }
+        if (typeof rawValue === "string") {
+            var lowered = rawValue.toLowerCase();
+            return lowered === "true" || lowered === "1";
+        }
+        return Boolean(rawValue);
+    };
+
+    window.__drbCoerceNumber = function (rawValue, allowFloat) {
+        if (typeof rawValue === "number") { return rawValue; }
+        var parsed = allowFloat === true ? parseFloat(rawValue) : parseInt(rawValue, 10);
+        if (isNaN(parsed)) { return null; }
+        return parsed;
+    };
+
+    window.__drbPopulateCapturedRequest = function (nodeId, payload) {
+        if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || DRB.Metadata.CurrentNode.id !== nodeId) { return; }
+
+        if (payload.__drbMessageShown !== true) { payload.__drbMessageShown = false; }
+        var showCapturedMessage = function () {
+            DRB.UI.ShowMessage("Captured request added to REST Builder.");
+            setTimeout(function () { DRB.UI.HideLoading(); }, 1200);
+        };
+
+        var resolvedRequestType = window.__drbResolveCapturedRequestType(payload);
+        var isDataverseRequest = window.__drbIsDataverseRequestType(resolvedRequestType);
+        if (isDataverseRequest) {
+            window.__drbCacheCapturedDataverseParameters(nodeId, payload);
+        }
+
+        if (DRB.Utilities.HasValue(resolvedRequestType)) {
+            payload.requestType = resolvedRequestType;
+            $("#" + DRB.DOM.RequestType.Dropdown.Id).val(resolvedRequestType).change();
+        }
+
+        if (isDataverseRequest && window.__drbIsDataverseMetadataReady(resolvedRequestType) !== true) {
+            payload.__drbMetadataDeferred = true;
+            window.__drbDeferCapturedDataverseRequest(resolvedRequestType, nodeId, payload);
+            if (payload.__drbMessageShown !== true) {
+                showCapturedMessage();
+                payload.__drbMessageShown = true;
+            }
+            return;
+        }
+
+        var applyEntity = function () {
+            if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || DRB.Metadata.CurrentNode.id !== nodeId) { return; }
+
+            var tableDropdown = $("#" + DRB.DOM.Table.Dropdown.Id);
+            if (tableDropdown.length > 0) {
+                var targetLogical = DRB.Utilities.HasValue(payload.primaryEntityLogicalName) ? payload.primaryEntityLogicalName : "";
+                if (DRB.Utilities.HasValue(targetLogical)) {
+                    tableDropdown.val(targetLogical);
+                    if (tableDropdown.val() !== targetLogical && DRB.Utilities.HasValue(payload.entitySetName)) {
+                        var fallbackTable = window.__drbFindTableByEntitySet(payload.entitySetName);
+                        if (DRB.Utilities.HasValue(fallbackTable)) { targetLogical = fallbackTable.LogicalName; }
+                        tableDropdown.val(targetLogical);
+                    }
+                    if (tableDropdown.val() === targetLogical) { tableDropdown.change(); }
+                } else if (DRB.Utilities.HasValue(payload.entitySetName)) {
+                    var table = window.__drbFindTableByEntitySet(payload.entitySetName);
+                    if (DRB.Utilities.HasValue(table)) {
+                        tableDropdown.val(table.LogicalName).change();
+                    }
+                }
+            }
+
+            if (DRB.Utilities.HasValue(payload.primaryId)) {
+                var primaryInput = $("#" + DRB.DOM.PrimaryId.Input.Id);
+                if (primaryInput.length > 0) {
+                    primaryInput
+                        .val(payload.primaryId)
+                        .trigger("input")
+                        .trigger("change");
+                }
+            }
+        };
+
+        setTimeout(applyEntity, 350);
+
+        if (window.__drbIsDataverseRequestType(resolvedRequestType) && DRB.Utilities.HasValue(payload.dataverseOperationName)) {
+            window.__drbScheduleCapturedDataverseExecuteSelection(nodeId, payload, 0);
+        }
+
+        if ((payload.requestType === "create" || payload.requestType === "update") && payload.bodyIsBinary !== true) {
+            window.__drbScheduleCapturedFieldPopulation(nodeId, payload, 0);
+        }
+
+        if (payload.requestType === "retrievesingle" || payload.requestType === "retrievemultiple") {
+            window.__drbScheduleCapturedSelectPopulation(nodeId, payload, 0);
+        }
+
+        if (payload.requestType === "retrievemultiple") {
+            window.__drbScheduleCapturedExpandPopulation(nodeId, payload, 0);
+            window.__drbScheduleCapturedOrderByPopulation(nodeId, payload, 0);
+        }
+
+        if (payload.requestType === "predefinedquery" && DRB.Utilities.HasValue(payload.fetchXml)) {
+            window.__drbScheduleCapturedFetchXmlPopulation(nodeId, payload, 0);
+        }
+
+        window.__drbApplyCapturedQueryOverrides(nodeId, payload);
+        if (payload.__drbMessageShown !== true) {
+            showCapturedMessage();
+            payload.__drbMessageShown = true;
+        }
+    };
+
+    window.__drbApplyCapturedQueryOverrides = function (nodeId, payload) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            var currentNode = DRB.Metadata.CurrentNode;
+            if (!DRB.Utilities.HasValue(currentNode) || currentNode.id !== nodeId) { return; }
+            if (!DRB.Utilities.HasValue(currentNode.data)) { return; }
+            var configuration = currentNode.data.configuration || {};
+            var overrides = configuration.capturedQueryOverrides || {};
+            var overridesChanged = false;
+
+            var filterValue = window.__drbFindQueryValue(payload, "$filter");
+            if (DRB.Utilities.HasValue(filterValue)) {
+                overrides.filter = filterValue.trim();
+                overridesChanged = true;
+            }
+
+            var expandValue = window.__drbFindQueryValue(payload, "$expand");
+            if (DRB.Utilities.HasValue(expandValue)) {
+                overrides.expand = expandValue.trim();
+                overridesChanged = true;
+            }
+
+            var orderValue = window.__drbFindQueryValue(payload, "$orderby");
+            if (DRB.Utilities.HasValue(orderValue)) {
+                overrides.orderby = orderValue.trim();
+                overridesChanged = true;
+            }
+
+            if (Object.keys(overrides).length > 0) {
+                configuration.capturedQueryOverrides = overrides;
+                currentNode.data.configuration = configuration;
+                if (overridesChanged === true && payload.requestType === "retrievemultiple" && typeof DRB.Logic.RetrieveMultiple.RenderCapturedFilterNotice === "function") {
+                    setTimeout(function () {
+                        try { DRB.Logic.RetrieveMultiple.RenderCapturedFilterNotice(); } catch { }
+                    }, 0);
+                }
+            }
+        } catch (overrideError) {
+            console.error(overrideError);
+        }
+    };
+
+    window.__drbScheduleCapturedFieldPopulation = function (nodeId, payload, attempt) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || DRB.Metadata.CurrentNode.id !== nodeId) {
+                window.__drbClearPendingFieldInjection(nodeId);
+                return;
+            }
+            if (payload.bodyIsBinary === true) {
+                window.__drbClearPendingFieldInjection(nodeId);
+                return;
+            }
+            if (DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data.__capturedFieldsApplied)) { return; }
+            if (!DRB.Utilities.HasValue(payload.__drbFieldPopulateStart)) {
+                payload.__drbFieldPopulateStart = Date.now();
+            }
+
+            if (!window.__drbCanPopulateCapturedFields()) {
+                window.__drbTrackPendingFieldInjection(nodeId, payload, attempt);
+                var elapsed = Date.now() - payload.__drbFieldPopulateStart;
+                var maxWait = 120000;
+                if (elapsed > maxWait) {
+                    window.__drbClearPendingFieldInjection(nodeId);
+                    return;
+                }
+                var backoff = Math.min(500 + (attempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedFieldPopulation(nodeId, payload, attempt + 1); }, backoff);
+                return;
+            }
+
+            window.__drbClearPendingFieldInjection(nodeId);
+            delete payload.__drbFieldPopulateStart;
+            var parsedBody = window.__drbParseCapturedRequestBody(payload);
+            if (!DRB.Utilities.HasValue(parsedBody)) { return; }
+            var attributes = window.__drbExtractCapturedAttributes(parsedBody);
+            if (!Array.isArray(attributes) || attributes.length === 0) { return; }
+
+            DRB.Metadata.CurrentNode.data.__capturedFieldsApplied = true;
+            var columnType = payload.requestType === "update" ? "IsValidForUpdate" : "IsValidForCreate";
+            window.__drbApplyCapturedFieldValues(attributes, columnType, "setFields");
+        } catch (scheduleError) {
+            console.error(scheduleError);
+        }
+    };
+
+    window.__drbCanPopulateCapturedFields = function () {
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode)) { return false; }
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentColumns) || DRB.Metadata.CurrentColumns.length === 0) { return false; }
+        var addButtonId = DRB.DOM.SetColumns.AddButton.Id + "setFields";
+        return $("#" + addButtonId).length > 0;
+    };
+
+    window.__drbTrackPendingFieldInjection = function (nodeId, payload, attempt) {
+        if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+        if (!window.__drbPendingFieldInjections) { window.__drbPendingFieldInjections = {}; }
+        window.__drbPendingFieldInjections[nodeId] = { payload: payload, attempt: attempt };
+    };
+
+    window.__drbClearPendingFieldInjection = function (nodeId) {
+        if (!window.__drbPendingFieldInjections) { return; }
+        if (window.__drbPendingFieldInjections[nodeId]) {
+            delete window.__drbPendingFieldInjections[nodeId];
+        }
+    };
+
+    window.__drbNotifyCapturedFieldsReady = function () {
+        if (!window.__drbPendingFieldInjections) { return; }
+        var pendingIds = Object.keys(window.__drbPendingFieldInjections);
+        pendingIds.forEach(function (nodeId) {
+            var entry = window.__drbPendingFieldInjections[nodeId];
+            if (!entry || !entry.payload) { return; }
+            window.__drbScheduleCapturedFieldPopulation(nodeId, entry.payload, (entry.attempt || 0) + 1);
+        });
+    };
+
+    window.__drbParseCapturedRequestBody = function (payload) {
+        if (!DRB.Utilities.HasValue(payload)) { return null; }
+        var raw = payload.body;
+        if (!DRB.Utilities.HasValue(raw) && DRB.Utilities.HasValue(payload.bodyBase64)) {
+            try { raw = window.atob(payload.bodyBase64); }
+            catch { raw = null; }
+        }
+
+        if (!DRB.Utilities.HasValue(raw) || typeof raw !== "string") { return null; }
+        raw = raw.trim();
+        if (raw.length === 0) { return null; }
+
+        try {
+            return JSON.parse(raw);
+        } catch {
+            return null;
+        }
+    };
+
+    window.__drbExtractCapturedAttributes = function (bodyObject) {
+        var attributes = [];
+        try {
+            Object.keys(bodyObject).forEach(function (key) {
+                if (!Object.prototype.hasOwnProperty.call(bodyObject, key)) { return; }
+                var value = bodyObject[key];
+                if (!DRB.Utilities.HasValue(key)) { return; }
+                if (key.indexOf("@odata.") > -1) {
+                    if (key.toLowerCase().endsWith("@odata.bind")) {
+                        var logicalName = key.split("@")[0];
+                        attributes.push({ logicalName: logicalName, typeHint: "lookup", raw: value });
+                    }
+                    return;
+                }
+                if (key.indexOf("@") > -1) { return; }
+                attributes.push({ logicalName: key, value: value });
+            });
+        } catch { }
+        return attributes;
+    };
+
+    window.__drbApplyCapturedFieldValues = function (attributes, columnType, metadataPath) {
+        if (!Array.isArray(attributes) || attributes.length === 0) { return; }
+        attributes.forEach(function (attribute) {
+            window.__drbUpsertCapturedField(attribute, columnType, metadataPath);
+        });
+    };
+
+    window.__drbUpsertCapturedField = function (attribute, columnType, metadataPath) {
+        try {
+            if (!DRB.Utilities.HasValue(attribute) || !DRB.Utilities.HasValue(attribute.logicalName)) { return; }
+            var logicalName = attribute.logicalName.toLowerCase();
+            var column = DRB.Utilities.GetRecordById(DRB.Metadata.CurrentColumns, logicalName);
+            if (!DRB.Utilities.HasValue(column)) { return; }
+            if (column[columnType] !== true) { return; }
+
+            var uniqueIndex = window.__drbFindExistingSetFieldRow(metadataPath, logicalName);
+            if (!DRB.Utilities.HasValue(uniqueIndex)) {
+                DRB.Logic.AddColumn(columnType, "SetColumns", metadataPath);
+                uniqueIndex = window.__drbGetUniqueIndexForLastColumn(metadataPath);
+            }
+            if (!DRB.Utilities.HasValue(uniqueIndex)) { return; }
+
+            window.__drbSelectColumnForCapturedField(uniqueIndex, logicalName, function () {
+                window.__drbSetCapturedFieldValue(uniqueIndex, column, attribute, 0);
+            });
+        } catch (upsertError) {
+            console.error(upsertError);
+        }
+    };
+
+    window.__drbGetMetadataList = function (metadataPath) {
+        var ref = DRB.Metadata;
+        if (!DRB.Utilities.HasValue(ref)) { return []; }
+        var segments = metadataPath.split("_");
+        for (var i = 0; i < segments.length; i++) {
+            var segment = segments[i];
+            if (!DRB.Utilities.HasValue(segment)) { continue; }
+            if (isNaN(parseInt(segment))) {
+                if (ref.hasOwnProperty(segment)) { ref = ref[segment]; }
+                else { return []; }
+            } else {
+                var index = parseInt(segment);
+                if (!Array.isArray(ref)) { return []; }
+                var found = null;
+                ref.forEach(function (entry) { if (entry.Id === index) { found = entry; } });
+                if (!DRB.Utilities.HasValue(found)) { return []; }
+                ref = found;
+            }
+        }
+        if (!Array.isArray(ref)) { return []; }
+        return ref;
+    };
+
+    window.__drbFindExistingSetFieldRow = function (metadataPath, logicalName) {
+        var list = window.__drbGetMetadataList(metadataPath);
+        if (!Array.isArray(list)) { return null; }
+        var match = null;
+        list.forEach(function (entry) {
+            if (DRB.Utilities.HasValue(entry.Value) && entry.Value.logicalName === logicalName) {
+                match = metadataPath + "_" + entry.Id;
             }
         });
-    }
+        return match;
+    };
+
+    window.__drbGetUniqueIndexForLastColumn = function (metadataPath) {
+        var list = window.__drbGetMetadataList(metadataPath);
+        if (!Array.isArray(list) || list.length === 0) { return null; }
+        return metadataPath + "_" + list[list.length - 1].Id;
+    };
+
+    window.__drbSelectColumnForCapturedField = function (uniqueIndex, logicalName, callback, attempt) {
+        var dropdownId = DRB.DOM.SetColumns.Dropdown.Id + uniqueIndex;
+        var dropdown = $("#" + dropdownId);
+        var currentAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+        if (dropdown.length === 0) {
+            if (currentAttempt >= 40) { return; }
+            setTimeout(function () { window.__drbSelectColumnForCapturedField(uniqueIndex, logicalName, callback, currentAttempt + 1); }, 150);
+            return;
+        }
+
+        if (dropdown.val() !== logicalName) {
+            dropdown.val(logicalName).trigger("change");
+        }
+
+        setTimeout(function () {
+            if (typeof callback === "function") { callback(); }
+        }, 200);
+    };
+
+    window.__drbSetCapturedFieldValue = function (uniqueIndex, column, attribute, attempt) {
+        var maxAttempts = 40;
+        var currentAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+        if (currentAttempt >= maxAttempts) { return; }
+        var baseId = DRB.DOM.SetColumns.ControlValue.Id + uniqueIndex;
+        var value = attribute.typeHint === "lookup" ? attribute.raw : attribute.value;
+        var retry = function () {
+            setTimeout(function () { window.__drbSetCapturedFieldValue(uniqueIndex, column, attribute, currentAttempt + 1); }, 150);
+        };
+
+        switch (column.AttributeType) {
+            case "String":
+            case "Memo":
+            case "EntityName":
+            case "Uniqueidentifier":
+            case "Integer":
+            case "BigInt":
+            case "Decimal":
+            case "Double":
+            case "Money": {
+                var inputId = "#txt_" + baseId;
+                var input = $(inputId);
+                if (input.length === 0) { retry(); return; }
+                var normalized = window.__drbNormalizePrimitiveValue(value);
+                input.val(normalized).trigger("input").trigger("change");
+                return;
+            }
+            case "ManagedProperty":
+            case "Boolean":
+            case "Picklist":
+            case "State":
+            case "Status": {
+                var dropdownId = "#cbx1_" + baseId;
+                var dropdown = $(dropdownId);
+                if (dropdown.length === 0) { retry(); return; }
+                var optionValue = window.__drbNormalizeOptionValue(value);
+                dropdown.val(optionValue).trigger("change");
+                if (typeof dropdown.selectpicker === "function") {
+                    dropdown.selectpicker("refresh");
+                }
+                return;
+            }
+            case "MultiPicklist": {
+                var multiId = "#cbxm_" + baseId;
+                var multi = $(multiId);
+                if (multi.length === 0) { retry(); return; }
+                var multiValues = window.__drbNormalizeMultiOptionValue(value);
+                if (typeof multi.selectpicker === "function") {
+                    multi.selectpicker("val", multiValues);
+                }
+                multi.val(multiValues).trigger("change");
+                return;
+            }
+            case "Lookup":
+            case "Owner":
+            case "Customer": {
+                var parsed = window.__drbParseLookupBinding(value);
+                if (!DRB.Utilities.HasValue(parsed)) { return; }
+                var guidInput = $("#txt2_" + baseId);
+                if (guidInput.length === 0) { retry(); return; }
+                guidInput.val(parsed.id).trigger("change");
+                var targetDropdown = $("#cbx2_" + baseId);
+                if (targetDropdown.length > 0 && DRB.Utilities.HasValue(parsed.logicalName)) {
+                    targetDropdown.val(parsed.logicalName).trigger("change");
+                    if (typeof targetDropdown.selectpicker === "function") {
+                        targetDropdown.selectpicker("refresh");
+                    }
+                }
+                return;
+            }
+            case "DateTime": {
+                var dateId = "#txtd_" + baseId;
+                var dateInput = $(dateId);
+                if (dateInput.length === 0) { retry(); return; }
+                var normalizedDate = window.__drbNormalizePrimitiveValue(value);
+                dateInput.val(normalizedDate).trigger("change");
+                return;
+            }
+            default:
+                return;
+        }
+    };
+
+    window.__drbNormalizePrimitiveValue = function (value) {
+        if (value === null || value === undefined) { return ""; }
+        if (typeof value === "object") { return ""; }
+        return value.toString();
+    };
+
+    window.__drbNormalizeOptionValue = function (value) {
+        if (value === null || value === undefined) { return ""; }
+        if (typeof value === "boolean") { return value ? "true" : "false"; }
+        if (typeof value === "number") { return value.toString(); }
+        if (typeof value === "object" && DRB.Utilities.HasValue(value.Value)) { return value.Value.toString(); }
+        return value.toString();
+    };
+
+    window.__drbNormalizeMultiOptionValue = function (value) {
+        if (value === null || value === undefined) { return []; }
+        if (Array.isArray(value)) { return value.map(function (v) { return v.toString(); }); }
+        return [value.toString()];
+    };
+
+    window.__drbParseLookupBinding = function (raw) {
+        if (!DRB.Utilities.HasValue(raw) || typeof raw !== "string") { return null; }
+        var match = raw.match(/\/([^\/()]+)\(([^)]+)\)/);
+        if (!DRB.Utilities.HasValue(match) || match.length < 3) { return null; }
+        var entitySet = match[1];
+        var recordId = match[2].replace(/\{/g, "").replace(/\}/g, "");
+        var table = window.__drbFindTableByEntitySet(entitySet);
+        var logicalName = DRB.Utilities.HasValue(table) ? table.LogicalName : "";
+        return { entitySetName: entitySet, logicalName: logicalName, id: recordId };
+    };
+
+    window.__drbFindTableByEntitySet = function (entitySetName) {
+        if (!DRB.Utilities.HasValue(entitySetName) || !Array.isArray(DRB.Metadata.Tables)) { return null; }
+        var target = null;
+        var comparer = entitySetName.toLowerCase();
+        DRB.Metadata.Tables.forEach(function (table) {
+            if (DRB.Utilities.HasValue(table.EntitySetName) && table.EntitySetName.toLowerCase() === comparer) {
+                target = table;
+            }
+        });
+        return target;
+    };
+
+    window.__drbScheduleCapturedSelectPopulation = function (nodeId, payload, attempt, cachedColumns) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            var currentNode = DRB.Metadata.CurrentNode;
+            if (!DRB.Utilities.HasValue(currentNode) || currentNode.id !== nodeId) {
+                window.__drbClearPendingSelectInjection(nodeId);
+                return;
+            }
+            if (DRB.Utilities.HasValue(currentNode.data.__capturedSelectApplied)) {
+                window.__drbClearPendingSelectInjection(nodeId);
+                return;
+            }
+
+            var currentAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+
+            var selectColumns = Array.isArray(cachedColumns) ? cachedColumns : window.__drbExtractCapturedSelectColumns(payload);
+            if (!Array.isArray(selectColumns) || selectColumns.length === 0) {
+                window.__drbClearPendingSelectInjection(nodeId);
+                return;
+            }
+
+            if (!DRB.Utilities.HasValue(payload.__drbSelectPopulateStart)) {
+                payload.__drbSelectPopulateStart = Date.now();
+            }
+            var maxWait = 120000;
+
+            if (!window.__drbCanPopulateCapturedSelects(payload)) {
+                window.__drbTrackPendingSelectInjection(nodeId, payload, currentAttempt, selectColumns);
+                var elapsed = Date.now() - payload.__drbSelectPopulateStart;
+                if (elapsed > maxWait) {
+                    window.__drbClearPendingSelectInjection(nodeId);
+                    return;
+                }
+                var backoff = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedSelectPopulation(nodeId, payload, currentAttempt + 1, selectColumns); }, backoff);
+                return;
+            }
+
+            var applied = window.__drbApplyCapturedSelectColumns(selectColumns);
+            if (applied !== true) {
+                window.__drbTrackPendingSelectInjection(nodeId, payload, currentAttempt, selectColumns);
+                var attemptElapsed = Date.now() - payload.__drbSelectPopulateStart;
+                if (attemptElapsed > maxWait) {
+                    window.__drbClearPendingSelectInjection(nodeId);
+                    delete payload.__drbSelectPopulateStart;
+                    return;
+                }
+                var retryDelay = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedSelectPopulation(nodeId, payload, currentAttempt + 1, selectColumns); }, retryDelay);
+                return;
+            }
+
+            window.__drbClearPendingSelectInjection(nodeId);
+            delete payload.__drbSelectPopulateStart;
+            currentNode.data.__capturedSelectApplied = true;
+        } catch (selectError) {
+            console.error(selectError);
+        }
+    };
+
+    window.__drbCanPopulateCapturedSelects = function (payload) {
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode)) { return false; }
+        var currentData = DRB.Metadata.CurrentNode.data || {};
+        var configuration = DRB.Utilities.HasValue(currentData.configuration) ? currentData.configuration : null;
+        if (!DRB.Utilities.HasValue(configuration)) { return false; }
+        if (DRB.Utilities.HasValue(payload)) {
+            var expectedLogical = DRB.Utilities.HasValue(payload.primaryEntityLogicalName) ? payload.primaryEntityLogicalName.toLowerCase() : "";
+            var expectedEntitySet = DRB.Utilities.HasValue(payload.entitySetName) ? payload.entitySetName.toLowerCase() : "";
+            if (expectedLogical.length > 0 || expectedEntitySet.length > 0) {
+                var configuredLogical = "";
+                var configuredEntitySet = "";
+                if (DRB.Utilities.HasValue(configuration.primaryEntity)) {
+                    var primaryEntity = configuration.primaryEntity;
+                    if (typeof primaryEntity === "string") {
+                        configuredLogical = primaryEntity.toLowerCase();
+                    } else {
+                        if (DRB.Utilities.HasValue(primaryEntity.logicalName)) { configuredLogical = primaryEntity.logicalName.toLowerCase(); }
+                        if (DRB.Utilities.HasValue(primaryEntity.entitySetName)) { configuredEntitySet = primaryEntity.entitySetName.toLowerCase(); }
+                    }
+                }
+                if (!DRB.Utilities.HasValue(configuredLogical) && DRB.Utilities.HasValue(configuration.primaryEntityLogicalName)) {
+                    configuredLogical = configuration.primaryEntityLogicalName.toLowerCase();
+                }
+                if (configuredLogical.length === 0 && configuredEntitySet.length === 0) { return false; }
+                if (expectedLogical.length > 0 && configuredLogical !== expectedLogical) {
+                    if (!(expectedEntitySet.length > 0 && configuredEntitySet === expectedEntitySet)) { return false; }
+                } else if (expectedLogical.length === 0 && expectedEntitySet.length > 0 && configuredEntitySet !== expectedEntitySet) {
+                    return false;
+                }
+            }
+        }
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentColumns) || DRB.Metadata.CurrentColumns.length === 0) { return false; }
+        var dropdown = $("#" + DRB.DOM.Columns.Dropdown.Id);
+        if (dropdown.length === 0) { return false; }
+        return true;
+    };
+
+    window.__drbExtractCapturedSelectColumns = function (payload) {
+        if (!DRB.Utilities.HasValue(payload)) { return []; }
+        var raw = window.__drbFindQueryValue(payload, "$select");
+        if (!DRB.Utilities.HasValue(raw)) { return []; }
+        var normalized = raw.split(',').map(function (entry) { return window.__drbNormalizeSelectColumnName(entry); }).filter(function (entry) { return entry.length > 0; });
+        if (normalized.length === 0) { return []; }
+        var deduped = [];
+        normalized.forEach(function (entry) {
+            var lowered = entry.toLowerCase();
+            if (deduped.indexOf(lowered) === -1) { deduped.push(lowered); }
+        });
+        return deduped;
+    };
+
+    window.__drbNormalizeSelectColumnName = function (columnName) {
+        if (!DRB.Utilities.HasValue(columnName)) { return ""; }
+        var trimmed = columnName.trim();
+        if (trimmed.length === 0) { return ""; }
+        var lowered = trimmed.toLowerCase();
+        if (lowered.charAt(0) === '_' && lowered.endsWith('_value') && lowered.length > 7) {
+            return lowered.substring(1, lowered.length - 6);
+        }
+        return lowered;
+    };
+
+    window.__drbApplyCapturedSelectColumns = function (columns) {
+        if (!Array.isArray(columns) || columns.length === 0) { return false; }
+        var dropdownId = DRB.DOM.Columns.Dropdown.Id;
+        var dropdown = $("#" + dropdownId);
+        if (dropdown.length === 0) { return false; }
+
+        var resolved = [];
+        columns.forEach(function (logicalName) {
+            var column = window.__drbFindColumnByLogicalName(logicalName);
+            if (DRB.Utilities.HasValue(column) && resolved.indexOf(column.LogicalName) === -1) {
+                resolved.push(column.LogicalName);
+            }
+        });
+
+        if (resolved.length === 0) { return false; }
+        dropdown.val(resolved).trigger("change");
+        if (typeof dropdown.selectpicker === "function") { dropdown.selectpicker("refresh"); }
+        return true;
+    };
+
+    window.__drbTrackPendingSelectInjection = function (nodeId, payload, attempt, columns) {
+        if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+        if (!window.__drbPendingSelectInjections) { window.__drbPendingSelectInjections = {}; }
+        var cleanAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+        window.__drbPendingSelectInjections[nodeId] = { payload: payload, attempt: cleanAttempt, columns: columns };
+    };
+
+    window.__drbClearPendingSelectInjection = function (nodeId) {
+        if (!window.__drbPendingSelectInjections) { return; }
+        if (window.__drbPendingSelectInjections[nodeId]) {
+            delete window.__drbPendingSelectInjections[nodeId];
+        }
+    };
+
+    window.__drbNotifyCapturedSelectsReady = function () {
+        if (!window.__drbPendingSelectInjections) { return; }
+        Object.keys(window.__drbPendingSelectInjections).forEach(function (nodeId) {
+            var entry = window.__drbPendingSelectInjections[nodeId];
+            if (!entry || !entry.payload) { return; }
+            window.__drbScheduleCapturedSelectPopulation(nodeId, entry.payload, (entry.attempt || 0) + 1, entry.columns);
+        });
+    };
+
+    window.__drbScheduleCapturedExpandPopulation = function (nodeId, payload, attempt, cachedEntries) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            var currentNode = DRB.Metadata.CurrentNode;
+            if (!DRB.Utilities.HasValue(currentNode) || currentNode.id !== nodeId) {
+                window.__drbClearPendingExpandInjection(nodeId);
+                return;
+            }
+            if (DRB.Utilities.HasValue(currentNode.data.__capturedExpandApplied)) {
+                window.__drbClearPendingExpandInjection(nodeId);
+                return;
+            }
+
+            var currentAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+            var expandEntries = Array.isArray(cachedEntries) ? cachedEntries : window.__drbExtractCapturedExpandEntries(payload);
+            if (!Array.isArray(expandEntries) || expandEntries.length === 0) {
+                window.__drbClearPendingExpandInjection(nodeId);
+                return;
+            }
+
+            if (!DRB.Utilities.HasValue(payload.__drbExpandPopulateStart)) {
+                payload.__drbExpandPopulateStart = Date.now();
+            }
+            var maxWait = 120000;
+
+            if (!window.__drbCanPopulateCapturedExpand()) {
+                window.__drbTrackPendingExpandInjection(nodeId, payload, currentAttempt, expandEntries);
+                var elapsed = Date.now() - payload.__drbExpandPopulateStart;
+                if (elapsed > maxWait) {
+                    window.__drbClearPendingExpandInjection(nodeId);
+                    return;
+                }
+                var backoff = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedExpandPopulation(nodeId, payload, currentAttempt + 1, expandEntries); }, backoff);
+                return;
+            }
+
+            var applied = window.__drbApplyCapturedExpand(expandEntries);
+            if (applied !== true) {
+                window.__drbTrackPendingExpandInjection(nodeId, payload, currentAttempt, expandEntries);
+                var attemptElapsed = Date.now() - payload.__drbExpandPopulateStart;
+                if (attemptElapsed > maxWait) {
+                    window.__drbClearPendingExpandInjection(nodeId);
+                    return;
+                }
+                var retryDelay = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedExpandPopulation(nodeId, payload, currentAttempt + 1, expandEntries); }, retryDelay);
+                return;
+            }
+
+            window.__drbClearPendingExpandInjection(nodeId);
+            delete payload.__drbExpandPopulateStart;
+            currentNode.data.__capturedExpandApplied = true;
+        } catch (expandError) {
+            console.error(expandError);
+        }
+    };
+
+    window.__drbCanPopulateCapturedExpand = function () {
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode)) { return false; }
+        if (!Array.isArray(DRB.Metadata.Tables) || DRB.Metadata.Tables.length === 0) { return false; }
+        var hasRelationships = Array.isArray(DRB.Metadata.CurrentOneToMany)
+            || Array.isArray(DRB.Metadata.CurrentManyToOne)
+            || Array.isArray(DRB.Metadata.CurrentManyToMany);
+        if (!hasRelationships) { return false; }
+        return true;
+    };
+
+    window.__drbExtractCapturedExpandEntries = function (payload) {
+        if (!DRB.Utilities.HasValue(payload)) { return []; }
+        var raw = window.__drbFindQueryValue(payload, "$expand");
+        if (!DRB.Utilities.HasValue(raw)) { return []; }
+        var entries = window.__drbSplitCapturedExpandEntries(raw);
+        if (!Array.isArray(entries) || entries.length === 0) { return []; }
+        var parsedEntries = [];
+        entries.forEach(function (entry) {
+            var parsed = window.__drbParseCapturedExpandEntry(entry);
+            if (DRB.Utilities.HasValue(parsed)) { parsedEntries.push(parsed); }
+        });
+        return parsedEntries;
+    };
+
+    window.__drbSplitCapturedExpandEntries = function (rawValue) {
+        var entries = [];
+        if (!DRB.Utilities.HasValue(rawValue)) { return entries; }
+        var buffer = '';
+        var depth = 0;
+        var inQuotes = false;
+        for (var i = 0; i < rawValue.length; i++) {
+            var char = rawValue[i];
+            if (char === "'") {
+                if (inQuotes === true && i + 1 < rawValue.length && rawValue[i + 1] === "'") {
+                    buffer += "''";
+                    i++;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                buffer += char;
+                continue;
+            }
+            if (inQuotes === false) {
+                if (char === '(') { depth++; buffer += char; continue; }
+                if (char === ')') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+                if (char === ',' && depth === 0) {
+                    if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+                    buffer = '';
+                    continue;
+                }
+            }
+            buffer += char;
+        }
+        if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+        return entries;
+    };
+
+    window.__drbParseCapturedExpandEntry = function (entry) {
+        if (!DRB.Utilities.HasValue(entry)) { return null; }
+        var trimmed = entry.trim();
+        if (trimmed.length === 0) { return null; }
+        var name = trimmed;
+        var optionsText = null;
+        var openIndex = trimmed.indexOf('(');
+        if (openIndex > -1 && trimmed.endsWith(')')) {
+            name = trimmed.substring(0, openIndex).trim();
+            optionsText = trimmed.substring(openIndex + 1, trimmed.length - 1);
+        }
+        if (name.length === 0) { return null; }
+        var selectColumns = [];
+        if (DRB.Utilities.HasValue(optionsText)) {
+            var selectValue = window.__drbFindExpandOptionValue(optionsText, "$select");
+            if (DRB.Utilities.HasValue(selectValue)) {
+                selectColumns = selectValue.split(',').map(function (value) { return window.__drbNormalizeSelectColumnName(value); })
+                    .filter(function (value) { return value.length > 0; });
+            }
+        }
+        return { name: name, selectColumns: selectColumns };
+    };
+
+    window.__drbFindExpandOptionValue = function (optionsText, key) {
+        if (!DRB.Utilities.HasValue(optionsText) || !DRB.Utilities.HasValue(key)) { return null; }
+        var segments = window.__drbSplitCapturedExpandOptions(optionsText);
+        var target = key.toLowerCase();
+        for (var i = 0; i < segments.length; i++) {
+            var segment = segments[i];
+            if (!DRB.Utilities.HasValue(segment)) { continue; }
+            var splitterIndex = segment.indexOf('=');
+            if (splitterIndex === -1) { continue; }
+            var optionKey = segment.substring(0, splitterIndex).trim().toLowerCase();
+            if (optionKey === target) {
+                return segment.substring(splitterIndex + 1).trim();
+            }
+        }
+        return null;
+    };
+
+    window.__drbSplitCapturedExpandOptions = function (optionsText) {
+        var entries = [];
+        if (!DRB.Utilities.HasValue(optionsText)) { return entries; }
+        var buffer = '';
+        var depth = 0;
+        var inQuotes = false;
+        for (var i = 0; i < optionsText.length; i++) {
+            var char = optionsText[i];
+            if (char === "'") {
+                if (inQuotes === true && i + 1 < optionsText.length && optionsText[i + 1] === "'") {
+                    buffer += "''";
+                    i++;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                buffer += char;
+                continue;
+            }
+            if (inQuotes === false) {
+                if (char === '(') { depth++; buffer += char; continue; }
+                if (char === ')') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+                if (char === ';' && depth === 0) {
+                    if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+                    buffer = '';
+                    continue;
+                }
+            }
+            buffer += char;
+        }
+        if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+        return entries;
+    };
+
+    window.__drbFindRelationshipByExpandName = function (expandName) {
+        if (!DRB.Utilities.HasValue(expandName)) { return null; }
+        var comparer = expandName.toLowerCase();
+        var relationshipSets = [
+            { metadata: DRB.Metadata.CurrentOneToMany, configKey: "oneToMany" },
+            { metadata: DRB.Metadata.CurrentManyToOne, configKey: "manyToOne" },
+            { metadata: DRB.Metadata.CurrentManyToMany, configKey: "manyToMany" }
+        ];
+        for (var setIndex = 0; setIndex < relationshipSets.length; setIndex++) {
+            var set = relationshipSets[setIndex];
+            if (!Array.isArray(set.metadata)) { continue; }
+            for (var relIndex = 0; relIndex < set.metadata.length; relIndex++) {
+                var relationship = set.metadata[relIndex];
+                if (!DRB.Utilities.HasValue(relationship)) { continue; }
+                if (DRB.Utilities.HasValue(relationship.SchemaName) && relationship.SchemaName.toLowerCase() === comparer) {
+                    return { relationship: relationship, configKey: set.configKey, metadata: set.metadata };
+                }
+                if (DRB.Utilities.HasValue(relationship.NavigationProperty) && relationship.NavigationProperty.toLowerCase() === comparer) {
+                    return { relationship: relationship, configKey: set.configKey, metadata: set.metadata };
+                }
+            }
+        }
+        return null;
+    };
+
+    window.__drbFindColumnByCapturedExpandName = function (columns, name) {
+        if (!Array.isArray(columns) || !DRB.Utilities.HasValue(name)) { return null; }
+        var comparer = name.toLowerCase();
+        for (var i = 0; i < columns.length; i++) {
+            var column = columns[i];
+            if (!DRB.Utilities.HasValue(column)) { continue; }
+            if (DRB.Utilities.HasValue(column.ODataName) && column.ODataName.toLowerCase() === comparer) { return column; }
+            if (DRB.Utilities.HasValue(column.LogicalName) && column.LogicalName.toLowerCase() === comparer) { return column; }
+            if (DRB.Utilities.HasValue(column.SchemaName) && column.SchemaName.toLowerCase() === comparer) { return column; }
+        }
+        return null;
+    };
+
+    window.__drbApplyCapturedExpand = function (expandEntries) {
+        if (!Array.isArray(expandEntries) || expandEntries.length === 0) { return false; }
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return false; }
+        var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+        var hasExisting = (Array.isArray(configuration.oneToMany) && configuration.oneToMany.length > 0)
+            || (Array.isArray(configuration.manyToOne) && configuration.manyToOne.length > 0)
+            || (Array.isArray(configuration.manyToMany) && configuration.manyToMany.length > 0);
+        if (hasExisting === true) { return false; }
+
+        var relValues = {
+            oneToMany: [],
+            manyToOne: [],
+            manyToMany: []
+        };
+
+        expandEntries.forEach(function (entry) {
+            if (!DRB.Utilities.HasValue(entry) || !DRB.Utilities.HasValue(entry.name)) { return; }
+            var relationshipInfo = window.__drbFindRelationshipByExpandName(entry.name);
+            if (!DRB.Utilities.HasValue(relationshipInfo) || !DRB.Utilities.HasValue(relationshipInfo.relationship)) { return; }
+            var targetTable = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, relationshipInfo.relationship.TargetTable);
+            if (!DRB.Utilities.HasValue(targetTable) || !Array.isArray(targetTable.Columns)) { return; }
+            if (!Array.isArray(entry.selectColumns) || entry.selectColumns.length === 0) { return; }
+
+            var selectedValues = [];
+            entry.selectColumns.forEach(function (columnName) {
+                var normalized = window.__drbNormalizeSelectColumnName(columnName);
+                if (!DRB.Utilities.HasValue(normalized)) { return; }
+                var column = window.__drbFindColumnByCapturedExpandName(targetTable.Columns, normalized);
+                if (!DRB.Utilities.HasValue(column)) { return; }
+                var value = relationshipInfo.relationship.SchemaName + "|" + column.LogicalName;
+                if (selectedValues.indexOf(value) === -1) { selectedValues.push(value); }
+            });
+
+            if (selectedValues.length === 0) { return; }
+            selectedValues.forEach(function (value) {
+                if (relValues[relationshipInfo.configKey].indexOf(value) === -1) {
+                    relValues[relationshipInfo.configKey].push(value);
+                }
+            });
+        });
+
+        var applied = false;
+        if (relValues.oneToMany.length > 0) {
+            configuration.oneToMany = DRB.Logic.ExportRelationships(relValues.oneToMany, DRB.Metadata.CurrentOneToMany);
+            applied = true;
+        }
+        if (relValues.manyToOne.length > 0) {
+            configuration.manyToOne = DRB.Logic.ExportRelationships(relValues.manyToOne, DRB.Metadata.CurrentManyToOne);
+            applied = true;
+        }
+        if (relValues.manyToMany.length > 0) {
+            configuration.manyToMany = DRB.Logic.ExportRelationships(relValues.manyToMany, DRB.Metadata.CurrentManyToMany);
+            applied = true;
+        }
+
+        if (applied !== true) { return false; }
+        DRB.Metadata.CurrentNode.data.configuration = configuration;
+        if (typeof DRB.Logic.FillRelationships === "function") {
+            DRB.Logic.FillRelationships();
+        }
+        if (configuration.capturedQueryOverrides && DRB.Utilities.HasValue(configuration.capturedQueryOverrides.expand)) {
+            delete configuration.capturedQueryOverrides.expand;
+        }
+        return true;
+    };
+
+    window.__drbTrackPendingExpandInjection = function (nodeId, payload, attempt, entries) {
+        if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+        if (!window.__drbPendingExpandInjections) { window.__drbPendingExpandInjections = {}; }
+        var cleanAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+        window.__drbPendingExpandInjections[nodeId] = { payload: payload, attempt: cleanAttempt, entries: entries };
+    };
+
+    window.__drbClearPendingExpandInjection = function (nodeId) {
+        if (!window.__drbPendingExpandInjections) { return; }
+        if (window.__drbPendingExpandInjections[nodeId]) {
+            delete window.__drbPendingExpandInjections[nodeId];
+        }
+    };
+
+    window.__drbScheduleCapturedOrderByPopulation = function (nodeId, payload, attempt, cachedOrders) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            var currentNode = DRB.Metadata.CurrentNode;
+            if (!DRB.Utilities.HasValue(currentNode) || currentNode.id !== nodeId) {
+                window.__drbClearPendingOrderInjection(nodeId);
+                return;
+            }
+            if (DRB.Utilities.HasValue(currentNode.data.__capturedOrderApplied)) {
+                window.__drbClearPendingOrderInjection(nodeId);
+                return;
+            }
+
+            var currentAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+            var orderEntries = Array.isArray(cachedOrders) ? cachedOrders : window.__drbExtractCapturedOrderByColumns(payload);
+            if (!Array.isArray(orderEntries) || orderEntries.length === 0) {
+                window.__drbClearPendingOrderInjection(nodeId);
+                return;
+            }
+
+            if (!DRB.Utilities.HasValue(payload.__drbOrderPopulateStart)) {
+                payload.__drbOrderPopulateStart = Date.now();
+            }
+            var maxWait = 120000;
+
+            if (!window.__drbCanPopulateCapturedOrderBy()) {
+                window.__drbTrackPendingOrderInjection(nodeId, payload, currentAttempt, orderEntries);
+                var elapsed = Date.now() - payload.__drbOrderPopulateStart;
+                if (elapsed > maxWait) {
+                    window.__drbClearPendingOrderInjection(nodeId);
+                    return;
+                }
+                var backoff = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedOrderByPopulation(nodeId, payload, currentAttempt + 1, orderEntries); }, backoff);
+                return;
+            }
+
+            var applied = window.__drbApplyCapturedOrderBy(orderEntries);
+            if (applied !== true) {
+                window.__drbTrackPendingOrderInjection(nodeId, payload, currentAttempt, orderEntries);
+                var attemptElapsed = Date.now() - payload.__drbOrderPopulateStart;
+                if (attemptElapsed > maxWait) {
+                    window.__drbClearPendingOrderInjection(nodeId);
+                    return;
+                }
+                var retryDelay = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedOrderByPopulation(nodeId, payload, currentAttempt + 1, orderEntries); }, retryDelay);
+                return;
+            }
+
+            window.__drbClearPendingOrderInjection(nodeId);
+            delete payload.__drbOrderPopulateStart;
+            currentNode.data.__capturedOrderApplied = true;
+        } catch (orderError) {
+            console.error(orderError);
+        }
+    };
+
+    window.__drbCanPopulateCapturedOrderBy = function () {
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode)) { return false; }
+        if (!Array.isArray(DRB.Metadata.CurrentColumns) || DRB.Metadata.CurrentColumns.length === 0) { return false; }
+        var table = $("#" + DRB.DOM.OrderColumns.Table.Id + "orderFields");
+        if (table.length === 0) { return false; }
+        return true;
+    };
+
+    window.__drbExtractCapturedOrderByColumns = function (payload) {
+        if (!DRB.Utilities.HasValue(payload)) { return []; }
+        var raw = window.__drbFindQueryValue(payload, "$orderby");
+        if (!DRB.Utilities.HasValue(raw)) { return []; }
+        var entries = raw.split(",").map(function (entry) { return entry.trim(); }).filter(function (entry) { return entry.length > 0; });
+        if (entries.length === 0) { return []; }
+        return entries.map(function (entry) {
+            var normalized = entry.replace(/\s+/g, " ").trim();
+            var parts = normalized.split(" ");
+            var name = parts[0];
+            var direction = parts.length > 1 ? parts[1].toLowerCase() : "asc";
+            if (direction !== "desc") { direction = "asc"; }
+            return { name: window.__drbNormalizeSelectColumnName(name), direction: direction };
+        });
+    };
+
+    window.__drbFindColumnByOrderName = function (orderName) {
+        if (!DRB.Utilities.HasValue(orderName) || !Array.isArray(DRB.Metadata.CurrentColumns)) { return null; }
+        var comparer = orderName.toLowerCase();
+        for (var index = 0; index < DRB.Metadata.CurrentColumns.length; index++) {
+            var column = DRB.Metadata.CurrentColumns[index];
+            if (!DRB.Utilities.HasValue(column)) { continue; }
+            if (DRB.Utilities.HasValue(column.LogicalName) && column.LogicalName.toLowerCase() === comparer) { return column; }
+            if (DRB.Utilities.HasValue(column.ODataName) && column.ODataName.toLowerCase() === comparer) { return column; }
+            if (DRB.Utilities.HasValue(column.SchemaName) && column.SchemaName.toLowerCase() === comparer) { return column; }
+        }
+        return null;
+    };
+
+    window.__drbApplyCapturedOrderBy = function (orderEntries) {
+        if (!Array.isArray(orderEntries) || orderEntries.length === 0) { return false; }
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return false; }
+        var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+        var resolved = [];
+        orderEntries.forEach(function (entry) {
+            if (!DRB.Utilities.HasValue(entry) || !DRB.Utilities.HasValue(entry.name)) { return; }
+            var column = window.__drbFindColumnByOrderName(entry.name);
+            if (!DRB.Utilities.HasValue(column)) { return; }
+            resolved.push({
+                logicalName: column.LogicalName,
+                schemaName: column.SchemaName,
+                label: column.Name,
+                type: column.AttributeType,
+                oDataName: column.ODataName,
+                value: entry.direction
+            });
+        });
+
+        if (resolved.length === 0) { return false; }
+        configuration.orderFields = resolved;
+        DRB.Metadata.CurrentNode.data.configuration = configuration;
+        if (typeof DRB.Logic.RetrieveMultiple.ConfigureOrderColumns === "function") {
+            DRB.Logic.RetrieveMultiple.ConfigureOrderColumns();
+        }
+        return true;
+    };
+
+    window.__drbTrackPendingOrderInjection = function (nodeId, payload, attempt, orders) {
+        if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+        if (!window.__drbPendingOrderInjections) { window.__drbPendingOrderInjections = {}; }
+        var cleanAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+        window.__drbPendingOrderInjections[nodeId] = { payload: payload, attempt: cleanAttempt, orders: orders };
+    };
+
+    window.__drbClearPendingOrderInjection = function (nodeId) {
+        if (!window.__drbPendingOrderInjections) { return; }
+        if (window.__drbPendingOrderInjections[nodeId]) {
+            delete window.__drbPendingOrderInjections[nodeId];
+        }
+    };
+
+    window.__drbScheduleCapturedFetchXmlPopulation = function (nodeId, payload, attempt) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload) || !DRB.Utilities.HasValue(payload.fetchXml)) { return; }
+            var currentNode = DRB.Metadata.CurrentNode;
+            if (!DRB.Utilities.HasValue(currentNode) || currentNode.id !== nodeId) {
+                window.__drbClearPendingFetchInjection(nodeId);
+                return;
+            }
+            if (DRB.Utilities.HasValue(currentNode.data.__capturedFetchApplied)) {
+                window.__drbClearPendingFetchInjection(nodeId);
+                return;
+            }
+
+            var currentAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+            if (!DRB.Utilities.HasValue(payload.__drbFetchPopulateStart)) {
+                payload.__drbFetchPopulateStart = Date.now();
+            }
+            var maxWait = 120000;
+
+            if (!window.__drbCanPopulateCapturedFetchXml()) {
+                window.__drbTrackPendingFetchInjection(nodeId, payload, currentAttempt);
+                var elapsed = Date.now() - payload.__drbFetchPopulateStart;
+                if (elapsed > maxWait) {
+                    window.__drbClearPendingFetchInjection(nodeId);
+                    delete payload.__drbFetchPopulateStart;
+                    return;
+                }
+                var backoff = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedFetchXmlPopulation(nodeId, payload, currentAttempt + 1); }, backoff);
+                return;
+            }
+
+            var applied = window.__drbApplyCapturedFetchXml(payload);
+            if (applied !== true) {
+                window.__drbTrackPendingFetchInjection(nodeId, payload, currentAttempt);
+                var attemptElapsed = Date.now() - payload.__drbFetchPopulateStart;
+                if (attemptElapsed > maxWait) {
+                    window.__drbClearPendingFetchInjection(nodeId);
+                    delete payload.__drbFetchPopulateStart;
+                    return;
+                }
+                var retryDelay = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedFetchXmlPopulation(nodeId, payload, currentAttempt + 1); }, retryDelay);
+                return;
+            }
+
+            window.__drbClearPendingFetchInjection(nodeId);
+            delete payload.__drbFetchPopulateStart;
+            currentNode.data.__capturedFetchApplied = true;
+        } catch (fetchError) {
+            console.error(fetchError);
+        }
+    };
+
+    window.__drbCanPopulateCapturedFetchXml = function () {
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode)) { return false; }
+        var data = DRB.Metadata.CurrentNode.data;
+        if (!DRB.Utilities.HasValue(data) || data.requestType !== "predefinedquery") { return false; }
+        var queryTypeDropdown = $("#" + DRB.DOM.QueryType.Dropdown.Id);
+        if (queryTypeDropdown.length === 0) { return false; }
+        if (!DRB.Utilities.HasValue(DRB.Metadata.XMLEditor) || !DRB.Utilities.HasValue(DRB.Metadata.XMLEditor.session)) { return false; }
+        return true;
+    };
+
+    window.__drbFormatFetchXml = function (rawXml) {
+        if (!DRB.Utilities.HasValue(rawXml) || typeof rawXml !== "string") { return rawXml; }
+        var xmlContent = rawXml.trim();
+        if (xmlContent.length === 0) { return rawXml; }
+        try {
+            if (typeof DOMParser !== "undefined") {
+                var parser = new DOMParser();
+                var parsed = parser.parseFromString(xmlContent, "application/xml");
+                var parseErrors = parsed.getElementsByTagName("parsererror");
+                if (!parseErrors || parseErrors.length === 0) {
+                    var formattedDom = window.__drbFormatXmlElement(parsed.documentElement, 0);
+                    if (Array.isArray(formattedDom) && formattedDom.length > 0) {
+                        return formattedDom.join("\n");
+                    }
+                }
+            }
+        } catch { }
+
+        return window.__drbFallbackFormatXml(xmlContent);
+    };
+
+    window.__drbFormatXmlElement = function (element, level) {
+        if (!DRB.Utilities.HasValue(element) || element.nodeType !== 1) { return []; }
+        var indentUnit = "    ";
+        var padding = new Array(level + 1).join(indentUnit);
+        var opening = "<" + element.nodeName;
+        if (element.attributes && element.attributes.length > 0) {
+            var attributeParts = [];
+            for (var attrIndex = 0; attrIndex < element.attributes.length; attrIndex++) {
+                var attribute = element.attributes[attrIndex];
+                attributeParts.push(attribute.name + '="' + attribute.value + '"');
+            }
+            opening += " " + attributeParts.join(" ");
+        }
+
+        var hasElementChildren = false;
+        var hasTextContent = false;
+        for (var child = element.firstChild; child; child = child.nextSibling) {
+            if (child.nodeType === 1) { hasElementChildren = true; }
+            if (child.nodeType === 3 && child.nodeValue.trim().length > 0) { hasTextContent = true; }
+        }
+
+        var lines = [];
+        if (!hasElementChildren && hasTextContent === false) {
+            lines.push(padding + opening + " />");
+            return lines;
+        }
+
+        lines.push(padding + opening + ">");
+        for (var current = element.firstChild; current; current = current.nextSibling) {
+            if (current.nodeType === 1) {
+                lines = lines.concat(window.__drbFormatXmlElement(current, level + 1));
+            } else if (current.nodeType === 3) {
+                var textValue = current.nodeValue.trim();
+                if (textValue.length > 0) {
+                    var textPadding = new Array(level + 2).join(indentUnit);
+                    lines.push(textPadding + textValue);
+                }
+            }
+        }
+        lines.push(padding + "</" + element.nodeName + ">");
+        return lines;
+    };
+
+    window.__drbFallbackFormatXml = function (xmlContent) {
+        var formatted = [];
+        var indent = 0;
+        var newlineSeparated = xmlContent.replace(/>\s*</g, '>' + "\n" + '<');
+        var lines = newlineSeparated.split("\n");
+        lines.forEach(function (line) {
+            var trimmedLine = line.trim();
+            if (trimmedLine.length === 0) { return; }
+            if (/^<\//.test(trimmedLine)) { indent = Math.max(indent - 1, 0); }
+            var padding = new Array(indent + 1).join("    ");
+            formatted.push(padding + trimmedLine);
+            if (/^<[^!?\/][^>]*[^\/]?>$/.test(trimmedLine)) { indent += 1; }
+        });
+        return formatted.join("\n");
+    };
+
+    window.__drbApplyCapturedFetchXml = function (payload) {
+        if (!DRB.Utilities.HasValue(payload) || !DRB.Utilities.HasValue(payload.fetchXml)) { return false; }
+        var desiredQueryType = DRB.Utilities.HasValue(payload.queryType) ? payload.queryType : "fetchxml";
+        var queryTypeDropdown = $("#" + DRB.DOM.QueryType.Dropdown.Id);
+        if (queryTypeDropdown.length === 0) { return false; }
+        if (queryTypeDropdown.val() !== desiredQueryType) {
+            queryTypeDropdown.val(desiredQueryType).change();
+        } else {
+            queryTypeDropdown.trigger("change");
+        }
+
+        if (!DRB.Utilities.HasValue(DRB.Metadata.XMLEditor) || !DRB.Utilities.HasValue(DRB.Metadata.XMLEditor.session)) { return false; }
+        var formattedFetchXml = window.__drbFormatFetchXml(payload.fetchXml);
+        DRB.Metadata.XMLEditor.session.setValue(formattedFetchXml);
+
+        if (DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) && DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data) && DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data.configuration)) {
+            DRB.Metadata.CurrentNode.data.configuration.queryType = desiredQueryType;
+            DRB.Metadata.CurrentNode.data.configuration.fetchXML = formattedFetchXml;
+        }
+
+        return true;
+    };
+
+    window.__drbTrackPendingFetchInjection = function (nodeId, payload, attempt) {
+        if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+        if (!window.__drbPendingFetchXmlInjections) { window.__drbPendingFetchXmlInjections = {}; }
+        var cleanAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+        window.__drbPendingFetchXmlInjections[nodeId] = { payload: payload, attempt: cleanAttempt };
+    };
+
+    window.__drbClearPendingFetchInjection = function (nodeId) {
+        if (!window.__drbPendingFetchXmlInjections) { return; }
+        if (window.__drbPendingFetchXmlInjections[nodeId]) {
+            delete window.__drbPendingFetchXmlInjections[nodeId];
+        }
+    };
+
+    window.__drbNotifyCapturedFetchXmlReady = function () {
+        if (!window.__drbPendingFetchXmlInjections) { return; }
+        Object.keys(window.__drbPendingFetchXmlInjections).forEach(function (nodeId) {
+            var entry = window.__drbPendingFetchXmlInjections[nodeId];
+            if (!entry || !entry.payload) { return; }
+            window.__drbScheduleCapturedFetchXmlPopulation(nodeId, entry.payload, (entry.attempt || 0) + 1);
+        });
+    };
+
+    window.__drbFindColumnByLogicalName = function (logicalName) {
+        if (!DRB.Utilities.HasValue(logicalName) || !Array.isArray(DRB.Metadata.CurrentColumns)) { return null; }
+        var comparer = logicalName.toLowerCase();
+        for (var index = 0; index < DRB.Metadata.CurrentColumns.length; index++) {
+            var column = DRB.Metadata.CurrentColumns[index];
+            if (!DRB.Utilities.HasValue(column) || !DRB.Utilities.HasValue(column.LogicalName)) { continue; }
+            if (column.LogicalName.toLowerCase() === comparer) { return column; }
+        }
+        return null;
+    };
+
+    window.__drbFindQueryValue = function (payload, key) {
+        if (!DRB.Utilities.HasValue(payload) || !DRB.Utilities.HasValue(key)) { return null; }
+        var query = payload.query || payload.Query;
+        if (DRB.Utilities.HasValue(query)) {
+            var found = window.__drbFindValueIgnoreCase(query, key);
+            if (DRB.Utilities.HasValue(found)) { return found; }
+        }
+
+        var rawUrl = payload.url || payload.originalUrl || payload.Url || payload.OriginalUrl;
+        if (!DRB.Utilities.HasValue(rawUrl)) { return null; }
+        try {
+            var parsed = null;
+            try {
+                parsed = new URL(rawUrl);
+            } catch {
+                parsed = new URL(rawUrl, "https://placeholder");
+            }
+            if (parsed && parsed.searchParams) {
+                var value = parsed.searchParams.get(key);
+                if (DRB.Utilities.HasValue(value)) { return value; }
+            }
+        } catch { }
+        return null;
+    };
+
+    window.__drbFindValueIgnoreCase = function (obj, key) {
+        if (!DRB.Utilities.HasValue(obj) || typeof obj !== "object") { return null; }
+        var target = key.toLowerCase();
+        var value = null;
+        Object.keys(obj).forEach(function (currentKey) {
+            if (currentKey.toLowerCase() === target && !DRB.Utilities.HasValue(value)) {
+                value = obj[currentKey];
+            }
+        });
+        return value;
+    };
 }
 
+(function () {
+    if (typeof chrome === "undefined" || !DRB.Utilities.HasValue(chrome.webview) || typeof chrome.webview.addEventListener !== "function") { return; }
+    chrome.webview.addEventListener("message", function (event) {
+        try {
+            var data = event && event.data ? event.data : null;
+            if (typeof data === "string") { data = JSON.parse(data); }
+            if (!DRB.Utilities.HasValue(data) || !data.action) { return; }
+            if (data.action === "captured-request") {
+                if (typeof window.__drbReceiveCapturedRequest === "function") {
+                    window.__drbReceiveCapturedRequest(data.data);
+                }
+            } else if (data.action === "restmetadata-get-result" || data.action === "restmetadata-set-result") {
+                if (DRB.Utilities.HasValue(DRB.Xrm) && typeof DRB.Xrm.HandleWebViewMessage === "function") {
+                    DRB.Xrm.HandleWebViewMessage(data);
+                }
+            }
+        } catch (ex) {
+            console.error(ex);
+        }
+    });
+})();
 DRB.InsertMainBodyContent = function () {
         $("#" + DRB.DOM.MainBody.Id).html(`
         <div class="drb-shell">
@@ -18566,5 +21174,7 @@ DRB.Initialize = async function () {
     DRB.Logic.CompleteInitialize();
 }
 // #endregion
+
+
   
  

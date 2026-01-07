@@ -9,6 +9,43 @@ DRB.Utilities.HasValue = function (parameter) {
 }
 
 /**
+ * Utilities - Format XML
+ * Returns a pretty printed XML string when possible
+ * @param {string} xml XML string
+ */
+DRB.Utilities.FormatXml = function (xml) {
+    if (!DRB.Utilities.HasValue(xml)) { return ""; }
+    var trimmed = ("" + xml).trim();
+    if (trimmed === "") { return ""; }
+
+    try {
+        if (typeof DOMParser === "undefined" || typeof XMLSerializer === "undefined") { return trimmed; }
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(trimmed, "application/xml");
+        var errors = doc.getElementsByTagName("parsererror");
+        if (errors && errors.length > 0) { return trimmed; }
+
+        var serialized = new XMLSerializer().serializeToString(doc);
+        var tokens = serialized.replace(/(>)(<)(\/*)/g, "$1\n$2$3").split("\n");
+        var indent = 0;
+        var formatted = [];
+
+        tokens.forEach(function (token) {
+            var line = token.trim();
+            if (line === "") { return; }
+            if (line.match(/^<\//)) { indent = Math.max(indent - 1, 0); }
+            var padding = new Array(indent + 1).join("  ");
+            formatted.push(padding + line);
+            if (line.match(/^<[^!?/][^>]*[^/]>$/)) { indent += 1; }
+        });
+
+        return formatted.join("\n");
+    } catch (e) {
+        return trimmed;
+    }
+}
+
+/**
  * Utilities - Download File
  * Download a file (added for BE mode)
  */

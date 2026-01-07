@@ -17,6 +17,7 @@ using DataverseDebugger.App.Models;
 using DataverseDebugger.App.Runner;
 using DataverseDebugger.App.Services;
 using DataverseDebugger.Protocol;
+using Microsoft.Win32;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -58,6 +59,8 @@ namespace DataverseDebugger.App.Views
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
+        private const string RestMetadataHeaderName = "x-drb-metadata";
+        private const string RestMetadataCacheKeyHeaderName = "x-drb-cachekey";
         private readonly RunnerClient _runnerClient;
         private readonly ObservableCollection<CapturedRequest> _requests;
         private readonly ObservableCollection<string> _globalTrace;
@@ -76,6 +79,7 @@ namespace DataverseDebugger.App.Views
         private string? _currentUserDataFolder;
         private EnvironmentProfile? _activeProfile;
         private bool _suppressDebugToggle;
+        private string? _lastCollectionFolder;
 
         public Func<CapturedRequest, Task>? BeforeAutoProxyAsync { get; set; }
         public Func<CapturedRequest, ExecuteResponse, Task>? AfterAutoProxyAsync { get; set; }
@@ -237,6 +241,7 @@ namespace DataverseDebugger.App.Views
                     core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
                     core.WebResourceRequested += OnWebResourceRequested;
                     core.WebResourceResponseReceived += OnWebResourceResponseReceived;
+                    core.WebMessageReceived += OnWebMessageReceived;
                     TryAddHostObject(core);
                     _webViewReady = true;
                     _currentUserDataFolder = _userDataFolder;
@@ -324,6 +329,11 @@ namespace DataverseDebugger.App.Views
             }
 
             if (_resourceHandler.TryHandle(e, _webView.CoreWebView2.Environment))
+            {
+                return;
+            }
+
+            if (TryServeMetadataFromCache(e))
             {
                 return;
             }
@@ -436,6 +446,35 @@ namespace DataverseDebugger.App.Views
                 {
                     match.ResponseStatus = status;
                     Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(e.WebMessageAsJson);
+                var root = document.RootElement;
+                if (!root.TryGetProperty("action", out var actionProp) || actionProp.ValueKind != JsonValueKind.String)
+                {
+                    return;
+                }
+
+                var action = actionProp.GetString();
+                if (string.Equals(action, "restmetadata-get", StringComparison.OrdinalIgnoreCase))
+                {
+                    await HandleRestMetadataGetAsync(root);
+                    return;
+                }
+
+                if (string.Equals(action, "restmetadata-set", StringComparison.OrdinalIgnoreCase))
+                {
+                    await HandleRestMetadataSetAsync(root);
                 }
             }
             catch
@@ -578,6 +617,383 @@ namespace DataverseDebugger.App.Views
             return Convert.ToHexString(hash);
         }
 
+        private bool IsEnvironmentRequest(Uri uri)
+        {
+            var orgBase = NormalizeOrgUrl(_activeProfile?.OrgUrl);
+            if (string.IsNullOrWhiteSpace(orgBase))
+            {
+                return false;
+            }
+
+            return string.Equals(uri.GetLeftPart(UriPartial.Authority), orgBase, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool TryServeMetadataFromCache(CoreWebView2WebResourceRequestedEventArgs e)
+        {
+            if (_activeProfile == null || _webView?.CoreWebView2 == null)
+            {
+                return false;
+            }
+
+            var headers = e.Request?.Headers;
+            if (headers == null)
+            {
+                return false;
+            }
+
+            var metadataFlag = TryGetHeader(headers, RestMetadataHeaderName);
+            if (string.IsNullOrWhiteSpace(metadataFlag))
+            {
+                return false;
+            }
+
+            var url = e.Request?.Uri;
+            var method = e.Request?.Method;
+            if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(method))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !IsEnvironmentRequest(uri))
+            {
+                return false;
+            }
+
+            var cacheKey = TryGetHeader(headers, RestMetadataCacheKeyHeaderName);
+            if (string.IsNullOrWhiteSpace(cacheKey))
+            {
+                cacheKey = null;
+            }
+
+            var cachePath = GetRestMetadataCachePath(method, url, null, cacheKey);
+            if (string.IsNullOrWhiteSpace(cachePath) || !File.Exists(cachePath))
+            {
+                LogService.Append($"[RestBuilder] Cache miss: {method} {url}");
+                return false;
+            }
+
+            var entry = ReadRestMetadataCache(cachePath);
+            if (entry == null)
+            {
+                LogService.Append($"[RestBuilder] Cache miss: {method} {url}");
+                return false;
+            }
+
+            var response = BuildCachedWebViewResponse(entry, url);
+            if (response == null)
+            {
+                return false;
+            }
+
+            e.Response = response;
+            LogService.Append($"[RestBuilder] Served metadata from cache: {method} {url}");
+            return true;
+        }
+
+        private async Task HandleRestMetadataGetAsync(JsonElement root)
+        {
+            if (_webView?.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            if (!root.TryGetProperty("requestId", out var requestIdProp) || requestIdProp.ValueKind != JsonValueKind.String)
+            {
+                return;
+            }
+
+            var requestId = requestIdProp.GetString();
+            if (!root.TryGetProperty("data", out var data))
+            {
+                return;
+            }
+
+            var method = GetStringProperty(data, "method");
+            var url = GetStringProperty(data, "url");
+            var body = GetStringProperty(data, "body");
+            var cacheKey = GetStringProperty(data, "cacheKey");
+
+            if (_activeProfile == null || string.IsNullOrWhiteSpace(method) || string.IsNullOrWhiteSpace(url))
+            {
+                await PostRestMetadataGetResultAsync(requestId, hit: false);
+                return;
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !IsEnvironmentRequest(uri))
+            {
+                await PostRestMetadataGetResultAsync(requestId, hit: false);
+                return;
+            }
+
+            var cachePath = GetRestMetadataCachePath(method, url, body, cacheKey);
+            if (string.IsNullOrWhiteSpace(cachePath) || !File.Exists(cachePath))
+            {
+                await PostRestMetadataGetResultAsync(requestId, hit: false);
+                return;
+            }
+
+            var entry = ReadRestMetadataCache(cachePath);
+            if (entry == null)
+            {
+                await PostRestMetadataGetResultAsync(requestId, hit: false);
+                return;
+            }
+
+            await PostRestMetadataGetResultAsync(requestId, hit: true, entry);
+        }
+
+        private async Task HandleRestMetadataSetAsync(JsonElement root)
+        {
+            if (_activeProfile == null)
+            {
+                return;
+            }
+
+            if (!root.TryGetProperty("data", out var data))
+            {
+                return;
+            }
+
+            var method = GetStringProperty(data, "method");
+            var url = GetStringProperty(data, "url");
+            var body = GetStringProperty(data, "body");
+            var cacheKey = GetStringProperty(data, "cacheKey");
+            var responseText = GetStringProperty(data, "responseText");
+            var responseEncoding = GetStringProperty(data, "responseEncoding") ?? "utf-8";
+            var contentType = GetStringProperty(data, "contentType");
+            var statusCode = GetIntProperty(data, "statusCode");
+
+            if (string.IsNullOrWhiteSpace(method) || string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(responseText))
+            {
+                return;
+            }
+
+            if (statusCode < 200 || statusCode >= 300)
+            {
+                return;
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !IsEnvironmentRequest(uri))
+            {
+                return;
+            }
+
+            var cachePath = GetRestMetadataCachePath(method, url, body, cacheKey);
+            if (string.IsNullOrWhiteSpace(cachePath) || File.Exists(cachePath))
+            {
+                return;
+            }
+
+            try
+            {
+                var entry = new RestMetadataCacheEntry
+                {
+                    Url = url,
+                    Method = method,
+                    StatusCode = statusCode,
+                    Body = responseText ?? string.Empty,
+                    BodyEncoding = responseEncoding ?? "utf-8",
+                    ContentType = contentType,
+                    CachedAtUtc = DateTimeOffset.UtcNow
+                };
+
+                Directory.CreateDirectory(Path.GetDirectoryName(cachePath) ?? AppDomain.CurrentDomain.BaseDirectory);
+                var json = JsonSerializer.Serialize(entry, WebMessageJsonOptions);
+                await File.WriteAllTextAsync(cachePath, json);
+            }
+            catch
+            {
+                // best effort
+            }
+        }
+
+        private async Task PostRestMetadataGetResultAsync(string? requestId, bool hit, RestMetadataCacheEntry? entry = null)
+        {
+            if (_webView?.CoreWebView2 == null || string.IsNullOrWhiteSpace(requestId))
+            {
+                return;
+            }
+
+            var payload = new
+            {
+                action = "restmetadata-get-result",
+                requestId,
+                hit,
+                statusCode = entry?.StatusCode ?? 0,
+                body = entry?.Body ?? string.Empty,
+                bodyEncoding = entry?.BodyEncoding ?? "utf-8"
+            };
+
+            try
+            {
+                var json = JsonSerializer.Serialize(payload, WebMessageJsonOptions);
+                _webView.CoreWebView2.PostWebMessageAsJson(json);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            await Task.CompletedTask;
+        }
+
+        private string? GetRestMetadataCachePath(string method, string url, string? body, string? cacheKey)
+        {
+            if (_activeProfile == null || string.IsNullOrWhiteSpace(method) || string.IsNullOrWhiteSpace(url))
+            {
+                return null;
+            }
+
+            var folder = EnvironmentPathService.EnsureEnvironmentSubfolder(_activeProfile, "restMetadata");
+            var key = ComputeCacheKey(method, url, body, cacheKey);
+            return Path.Combine(folder, $"{key}.json");
+        }
+
+        private static string ComputeCacheKey(string method, string url, string? body, string? cacheKey)
+        {
+            using var sha = SHA256.Create();
+            var payload = $"{method}|{url}";
+            if (!string.IsNullOrWhiteSpace(cacheKey))
+            {
+                payload += "|" + cacheKey;
+            }
+            else if (!string.IsNullOrWhiteSpace(body))
+            {
+                payload += "|" + body;
+            }
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            var hash = sha.ComputeHash(bytes);
+            return Convert.ToHexString(hash);
+        }
+
+        private static RestMetadataCacheEntry? ReadRestMetadataCache(string path)
+        {
+            try
+            {
+                var json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize<RestMetadataCacheEntry>(json, WebMessageJsonOptions);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? GetStringProperty(JsonElement element, string name)
+        {
+            if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String)
+            {
+                return prop.GetString();
+            }
+
+            return null;
+        }
+
+        private static int GetIntProperty(JsonElement element, string name)
+        {
+            if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var value))
+            {
+                return value;
+            }
+
+            return 0;
+        }
+
+        private static string? TryGetHeader(CoreWebView2HttpRequestHeaders headers, string name)
+        {
+            try
+            {
+                foreach (var header in headers)
+                {
+                    if (string.Equals(header.Key, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return header.Value;
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return null;
+        }
+
+        private static byte[] DecodeCacheBody(RestMetadataCacheEntry entry)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(entry.Body))
+            {
+                return Array.Empty<byte>();
+            }
+
+            if (string.Equals(entry.BodyEncoding, "base64", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    return Convert.FromBase64String(entry.Body);
+                }
+                catch
+                {
+                    return Array.Empty<byte>();
+                }
+            }
+
+            return Encoding.UTF8.GetBytes(entry.Body);
+        }
+
+        private static string ResolveCachedContentType(RestMetadataCacheEntry entry, string url)
+        {
+            if (entry != null && !string.IsNullOrWhiteSpace(entry.ContentType))
+            {
+                return entry.ContentType!;
+            }
+
+            if (!string.IsNullOrWhiteSpace(url) && url.IndexOf("/$metadata", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "application/xml";
+            }
+
+            if (!string.IsNullOrWhiteSpace(url) && url.EndsWith("/$batch", StringComparison.OrdinalIgnoreCase))
+            {
+                return "text/plain; charset=utf-8";
+            }
+
+            if (entry != null && !string.IsNullOrWhiteSpace(entry.Body))
+            {
+                var trimmed = entry.Body.TrimStart();
+                if (trimmed.StartsWith("<", StringComparison.Ordinal))
+                {
+                    return "application/xml";
+                }
+            }
+
+            return "application/json; charset=utf-8";
+        }
+
+        private CoreWebView2WebResourceResponse? BuildCachedWebViewResponse(RestMetadataCacheEntry entry, string url)
+        {
+            try
+            {
+                var env = _webView?.CoreWebView2?.Environment;
+                if (env == null)
+                {
+                    return null;
+                }
+
+                var body = DecodeCacheBody(entry);
+                var stream = new MemoryStream(body);
+                var status = entry.StatusCode;
+                var statusText = status >= 200 && status < 300 ? "OK" : "Error";
+                var contentType = ResolveCachedContentType(entry, url);
+                var headers = $"Content-Type: {contentType}\r\n";
+                return env.CreateWebResourceResponse(stream, status, statusText, headers);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static bool IsSafeForAutoProxy(string method)
         {
             return string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ||
@@ -696,6 +1112,18 @@ namespace DataverseDebugger.App.Views
                 Body = body;
                 Headers = headers;
             }
+        }
+
+        private sealed class RestMetadataCacheEntry
+        {
+            public string Url { get; set; } = string.Empty;
+            public string Method { get; set; } = string.Empty;
+            public int StatusCode { get; set; }
+            public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> Headers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+            public string Body { get; set; } = string.Empty;
+            public string BodyEncoding { get; set; } = "utf-8";
+            public string? ContentType { get; set; }
+            public DateTimeOffset CachedAtUtc { get; set; }
         }
 
         private async Task<ProxyResponse> ProxyToDataverseAsync(CapturedRequest item, CoreWebView2WebResourceRequest request, string authHeader)
@@ -998,6 +1426,75 @@ namespace DataverseDebugger.App.Views
             _suppressDebugToggle = false;
         }
 
+        private async void OnLoadCollectionClick(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Load REST Builder collection",
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*"
+            };
+
+            if (!string.IsNullOrWhiteSpace(_lastCollectionFolder) && Directory.Exists(_lastCollectionFolder))
+            {
+                dialog.InitialDirectory = _lastCollectionFolder;
+            }
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            string fileContent;
+            try
+            {
+                fileContent = File.ReadAllText(dialog.FileName);
+                _lastCollectionFolder = Path.GetDirectoryName(dialog.FileName);
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Load collection failed: {ex.Message}");
+                return;
+            }
+
+            await ExecuteCollectionLoadAsync(fileContent);
+        }
+
+        private async void OnSaveCollectionClick(object sender, RoutedEventArgs e)
+        {
+            var payload = await TryGetCollectionSavePayloadAsync();
+            if (payload == null)
+            {
+                return;
+            }
+
+            var dialog = new SaveFileDialog
+            {
+                Title = "Save REST Builder collection",
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                FileName = payload.FileName ?? "collection.json"
+            };
+
+            if (!string.IsNullOrWhiteSpace(_lastCollectionFolder) && Directory.Exists(_lastCollectionFolder))
+            {
+                dialog.InitialDirectory = _lastCollectionFolder;
+            }
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            try
+            {
+                File.WriteAllText(dialog.FileName, payload.Content ?? string.Empty);
+                _lastCollectionFolder = Path.GetDirectoryName(dialog.FileName);
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Save collection failed: {ex.Message}");
+            }
+        }
+
         public void SetWebViewVisibility(bool visible)
         {
             if (WebViewContainer == null)
@@ -1027,12 +1524,87 @@ namespace DataverseDebugger.App.Views
             _webView?.CoreWebView2?.OpenDevToolsWindow();
         }
 
+        private async Task ExecuteCollectionActionAsync(string actionName)
+        {
+            var core = _webView?.CoreWebView2;
+            if (!_webViewReady || core == null)
+            {
+                LogService.Append($"[RestBuilder] {actionName} collection ignored: WebView not ready.");
+                return;
+            }
+
+            try
+            {
+                var script = $"(function(){{ if (window.DRB && DRB.Collection && typeof DRB.Collection.{actionName} === 'function') {{ DRB.Collection.{actionName}(); }} }})();";
+                await core.ExecuteScriptAsync(script);
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] {actionName} collection failed: {ex.Message}");
+            }
+        }
+
+        private async Task ExecuteCollectionLoadAsync(string fileContent)
+        {
+            var core = _webView?.CoreWebView2;
+            if (!_webViewReady || core == null)
+            {
+                LogService.Append("[RestBuilder] Load collection ignored: WebView not ready.");
+                return;
+            }
+
+            try
+            {
+                var payload = JsonSerializer.Serialize(fileContent);
+                var script = $"(function(){{ if (window.DRB && DRB.Collection && typeof DRB.Collection.LoadFromText === 'function') {{ DRB.Collection.LoadFromText({payload}); }} }})();";
+                await core.ExecuteScriptAsync(script);
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Load collection failed: {ex.Message}");
+            }
+        }
+
+        private async Task<CollectionSavePayload?> TryGetCollectionSavePayloadAsync()
+        {
+            var core = _webView?.CoreWebView2;
+            if (!_webViewReady || core == null)
+            {
+                LogService.Append("[RestBuilder] Save collection ignored: WebView not ready.");
+                return null;
+            }
+
+            try
+            {
+                var result = await core.ExecuteScriptAsync("(function(){ if (window.DRB && DRB.Collection && typeof DRB.Collection.GetSavePayload === 'function') { return DRB.Collection.GetSavePayload(); } return null; })();");
+                if (string.IsNullOrWhiteSpace(result) || result == "null")
+                {
+                    return null;
+                }
+
+                return JsonSerializer.Deserialize<CollectionSavePayload>(result, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Save collection failed: {ex.Message}");
+                return null;
+            }
+        }
+
         private void UpdateNavButtons()
         {
             var core = _webView?.CoreWebView2;
             var ready = core != null;
+            if (LoadCollectionButton != null) LoadCollectionButton.IsEnabled = ready;
+            if (SaveCollectionButton != null) SaveCollectionButton.IsEnabled = ready;
             if (RefreshButton != null) RefreshButton.IsEnabled = ready;
             if (DevToolsButton != null) DevToolsButton.IsEnabled = ready;
+        }
+
+        private sealed class CollectionSavePayload
+        {
+            public string? FileName { get; set; }
+            public string? Content { get; set; }
         }
 
         private void NavigateToRestBuilder()
@@ -1167,6 +1739,7 @@ namespace DataverseDebugger.App.Views
                     {
                         _webView.CoreWebView2.WebResourceRequested -= OnWebResourceRequested;
                         _webView.CoreWebView2.WebResourceResponseReceived -= OnWebResourceResponseReceived;
+                        _webView.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
                         _webView.CoreWebView2.NavigationCompleted -= OnNavigationCompleted;
                         _webView.CoreWebView2.ProcessFailed -= OnProcessFailed;
                     }

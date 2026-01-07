@@ -580,16 +580,16 @@ namespace DataverseDebugger.App
             switch (section)
             {
                 case "Browser":
-                    SectionDescription.Text = "WebView2 browser with request capture.";
+                    SectionDescription.Text = "Browser with request capture.";
                     targetView = _browserView;
                     break;
                 case "REST Builder":
-                    SectionDescription.Text = "Bundled Dataverse REST Builder (captured + proxied).";
+                    SectionDescription.Text = "Compose, organize, and execute Dataverse calls.";
                     targetView = _restBuilderView;
                     _ = EnsureRestBuilderEnvironmentAsync(swallowExceptions: true);
                     break;
                 case "Runner":
-                    SectionDescription.Text = "Runner health and capabilities.";
+                    SectionDescription.Text = "Monitor and control the plugin/runner process.";
                     targetView = _runnerView;
                     _ = RefreshHealthAsync();
                     break;
@@ -598,11 +598,11 @@ namespace DataverseDebugger.App
                     targetView = _requestsView;
                     break;
                 case "Environments":
-                    SectionDescription.Text = "Environments.";
+                    SectionDescription.Text = "Manage Dataverse environments.";
                     targetView = _environmentsView;
                     break;
                 case "Settings":
-                    SectionDescription.Text = "Settings (placeholder).";
+                    SectionDescription.Text = "Application settings and preferences.";
                     targetView = _settingsView;
                     break;
                 default:

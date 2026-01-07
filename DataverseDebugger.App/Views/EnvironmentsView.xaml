@@ -1,4 +1,4 @@
-<UserControl x:Class="DataverseDebugger.App.Views.EnvironmentsView"
+﻿<UserControl x:Class="DataverseDebugger.App.Views.EnvironmentsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -7,147 +7,160 @@
              d:DesignHeight="300" d:DesignWidth="400">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <Style TargetType="Separator">
+            <Setter Property="Background" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="Height" Value="1"/>
+        </Style>
     </UserControl.Resources>
     <Grid Background="{DynamicResource ThemeBackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="1.2*"/>
             <ColumnDefinition Width="2*"/>
         </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Background="White" CornerRadius="8" Padding="12" BorderBrush="#E0E0E0" BorderThickness="1" Margin="0 0 8 0">
+        <Border Grid.Column="0" Background="{DynamicResource ThemeSurfaceBrush}" CornerRadius="8" Padding="12" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" Margin="0 0 8 0">
             <StackPanel>
-                <TextBlock Text="Environments" Foreground="#37474F" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
-                <ListBox x:Name="EnvList" ItemsSource="{Binding Profiles}" SelectionChanged="OnSelectionChanged" MouseDoubleClick="OnEnvironmentDoubleClick" Height="260">
+                <TextBlock Text="Environments" Foreground="{DynamicResource ThemeTextPrimaryBrush}" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
+                <ListBox x:Name="EnvList" ItemsSource="{Binding Profiles}" SelectionChanged="OnSelectionChanged" MouseDoubleClick="OnEnvironmentDoubleClick" Height="260"
+                         Background="{DynamicResource ThemeSurfaceBrush}"
+                         BorderBrush="{DynamicResource ThemeBorderBrush}"
+                         BorderThickness="1"
+                         Foreground="{DynamicResource ThemeTextPrimaryBrush}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal">
-                                <Ellipse Width="8" Height="8" Fill="#00C853" VerticalAlignment="Center" Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0 0 6 0"/>
-                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                                <TextBlock Text="(Active)" Foreground="#00C853" FontWeight="SemiBold" Margin="6 0 0 0" VerticalAlignment="Center" Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <Ellipse Width="8" Height="8" Fill="{DynamicResource ThemeSuccessBrush}" VerticalAlignment="Center" Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0 0 6 0"/>
+                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" />
+                                <TextBlock Text="(Active)" Foreground="{DynamicResource ThemeSuccessBrush}" FontWeight="SemiBold" Margin="6 0 0 0" VerticalAlignment="Center" Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibilityConverter}}"/>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
                 <StackPanel Orientation="Horizontal" Margin="0 8 0 0">
                     <Button Width="90" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnAddClick">
-                        <TextBlock Text="➕ Add"/>
+                        <TextBlock Text="&#x2795; Add"/>
                     </Button>
                     <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnSaveClick">
-                        <TextBlock Text="💾 Save"/>
+                        <TextBlock Text="&#x1F4BE; Save"/>
                     </Button>
                     <Button Width="90" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnDeleteClick">
-                        <TextBlock Text="🗑 Delete"/>
+                        <TextBlock Text="&#x1F5D1; Delete"/>
                     </Button>
                     <Button Width="110" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnActivateClick">
-                        <TextBlock Text="⚡ Activate"/>
+                        <TextBlock Text="&#x26A1; Activate"/>
                     </Button>
                     <Button Width="120" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnDeactivateClick">
-                        <TextBlock Text="⏹ Deactivate"/>
+                        <TextBlock Text="&#x23F9; Deactivate"/>
                     </Button>
                 </StackPanel>
             </StackPanel>
         </Border>
 
-        <Border Grid.Column="1" Background="White" CornerRadius="8" Padding="12" BorderBrush="#E0E0E0" BorderThickness="1">
+        <Border Grid.Column="1" Background="{DynamicResource ThemeSurfaceBrush}" CornerRadius="8" Padding="12" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <TextBlock Text="Details" Foreground="#37474F" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
+                    <TextBlock Text="Details" Foreground="{DynamicResource ThemeTextPrimaryBrush}" FontSize="16" FontWeight="SemiBold" Margin="0 0 0 8"/>
                     <StackPanel Orientation="Horizontal" Margin="0 0 0 4">
-                        <TextBlock Text="Name:" Width="90" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBox x:Name="NameBox" Width="320" Style="{DynamicResource ModernTextBox}"/>
+                        <TextBlock Text="Name:" Width="90" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBox x:Name="NameBox" Width="320" Style="{DynamicResource ModernTextBox}" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0 0 0 4">
-                        <TextBlock Text="Org URL:" Width="90" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBox x:Name="OrgUrlBox" Width="320" Style="{DynamicResource ModernTextBox}" IsEnabled="False"/>
+                        <TextBlock Text="Org URL:" Width="90" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBox x:Name="OrgUrlBox" Width="320" Style="{DynamicResource ModernTextBox}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" IsEnabled="False"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0 0 0 4">
-                        <TextBlock Text="Navigate URL:" Width="90" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBox x:Name="NavigateUrlBox" Width="320" Style="{DynamicResource ModernTextBox}"/>
+                        <TextBlock Text="Navigate URL:" Width="90" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBox x:Name="NavigateUrlBox" Width="320" Style="{DynamicResource ModernTextBox}" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     </StackPanel>
-                    <TextBlock Text="Notes:" Foreground="#607D8B" Margin="0 4 0 2"/>
-                    <TextBox x:Name="NotesBox" Height="60" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Style="{DynamicResource ModernTextBox}"/>
+                    <TextBlock Text="Notes:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="0 4 0 2"/>
+                    <TextBox x:Name="NotesBox" Height="60" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Style="{DynamicResource ModernTextBox}" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
 
                     <Separator Margin="0 8 0 8"/>
-                    <TextBlock Text="Plugin assemblies" Foreground="#607D8B"/>
+                    <TextBlock Text="Plugin assemblies" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 4 0 4">
                         <Button Width="100" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnAddAssemblyClick">
-                            <TextBlock Text="➕ Add DLL"/>
+                            <TextBlock Text="&#x2795; Add DLL"/>
                         </Button>
                         <Button Width="90" Height="26" Margin="6 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnRemoveAssemblyClick">
-                            <TextBlock Text="🗑 Remove"/>
+                            <TextBlock Text="&#x1F5D1; Remove"/>
                         </Button>
                     </StackPanel>
-                    <ListBox x:Name="AssemblyList" Height="80"/>
+                    <ListBox x:Name="AssemblyList" Height="80"
+                             Background="{DynamicResource ThemeSurfaceBrush}"
+                             BorderBrush="{DynamicResource ThemeBorderBrush}"
+                             BorderThickness="1"
+                             Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
 
                     <Separator Margin="0 8 0 8"/>
-                    <TextBlock Text="Runner defaults" Foreground="#607D8B"/>
+                    <TextBlock Text="Runner defaults" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 4 0 4">
                         <CheckBox x:Name="TraceVerboseCheck" Content="Trace verbose" Margin="0 0 0 0" Style="{DynamicResource ModernCheckBox}"/>
                     </StackPanel>
 
                     <Separator Margin="0 8 0 8"/>
-                    <TextBlock Text="Capture defaults" Foreground="#607D8B"/>
+                    <TextBlock Text="Capture defaults" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 4 0 4">
                         <CheckBox x:Name="ApiOnlyCheck" Content="API only" Margin="0 0 0 0" IsChecked="True" Style="{DynamicResource ModernCheckBox}"/>
                     </StackPanel>
 
                     <Separator Margin="0 8 0 8"/>
-                    <TextBlock Text="Auth/cache (per environment)" Foreground="#607D8B"/>
-                    <TextBlock Text="Token cache and WebView cache folders will be created per environment. Interactive login to be wired like Dataverse Browser." TextWrapping="Wrap" Foreground="#78909C" Margin="0 2 0 6"/>
+                    <TextBlock Text="Auth/cache (per environment)" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                    <TextBlock Text="Token cache and WebView cache folders will be created per environment. Interactive login to be wired like Dataverse Browser." TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextMutedBrush}" Margin="0 2 0 6"/>
                     <StackPanel Orientation="Horizontal" Margin="0 0 0 4">
-                        <TextBlock Text="Token cache:" Width="90" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBlock x:Name="TokenCachePathText" Foreground="#37474F" TextWrapping="Wrap"/>
+                        <TextBlock Text="Token cache:" Width="90" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBlock x:Name="TokenCachePathText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0 0 0 4">
-                        <TextBlock Text="WebView cache:" Width="90" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBlock x:Name="WebViewCachePathText" Foreground="#37474F" TextWrapping="Wrap"/>
+                        <TextBlock Text="WebView cache:" Width="90" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBlock x:Name="WebViewCachePathText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0 4 0 4">
                         <Button Width="90" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnSignInClick">
-                            <TextBlock Text="🔑 Sign in"/>
-                        </Button>
+                        <TextBlock Text="&#x1F511; Sign in"/>
+                    </Button>
                         <Button Width="95" Height="26" Margin="8 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnSignOutClick">
-                            <TextBlock Text="🚪 Sign out"/>
-                        </Button>
-                        <TextBlock x:Name="AuthStatusText" Foreground="#607D8B" Margin="8 6 0 0"/>
+                        <TextBlock Text="&#x1F6AA; Sign out"/>
+                    </Button>
+                        <TextBlock x:Name="AuthStatusText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="8 6 0 0"/>
                     </StackPanel>
                     <Separator Margin="0 8 0 8"/>
-                    <TextBlock Text="Metadata cache" Foreground="#607D8B"/>
+                    <TextBlock Text="Metadata cache" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 2 0 2">
-                        <TextBlock Text="Path:" Width="80" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBlock x:Name="MetadataPathText" Foreground="#37474F" TextWrapping="Wrap"/>
+                        <TextBlock Text="Path:" Width="80" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBlock x:Name="MetadataPathText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0 2 0 2">
-                        <TextBlock Text="Last updated:" Width="80" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBlock x:Name="MetadataStatusText" Foreground="#37474F" TextWrapping="Wrap"/>
+                        <TextBlock Text="Last updated:" Width="80" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBlock x:Name="MetadataStatusText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <Button Width="170" Height="26" Margin="0 4 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnRefreshMetadataClick">
-                        <TextBlock Text="🔄 Refresh metadata"/>
+                        <TextBlock Text="&#x1F504; Refresh metadata"/>
                     </Button>
                     <Separator Margin="0 8 0 8"/>
-                    <TextBlock Text="WebView cache" Foreground="#607D8B"/>
+                    <TextBlock Text="WebView cache" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 2 0 2">
-                        <TextBlock Text="Path:" Width="80" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBlock x:Name="WebViewCachePathSummaryText" Foreground="#37474F" TextWrapping="Wrap"/>
+                        <TextBlock Text="Path:" Width="80" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBlock x:Name="WebViewCachePathSummaryText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0 2 0 2">
-                        <TextBlock Text="Size:" Width="80" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBlock x:Name="WebViewCacheSizeText" Foreground="#37474F" TextWrapping="Wrap"/>
+                        <TextBlock Text="Size:" Width="80" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBlock x:Name="WebViewCacheSizeText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <Button Width="160" Height="26" Margin="0 4 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnClearWebViewCacheClick">
-                        <TextBlock Text="🧹 Clear cache"/>
+                        <TextBlock Text="&#x1F9F9; Clear cache"/>
                     </Button>
                     <Separator Margin="0 8 0 8"/>
-                    <TextBlock Text="Plugin catalog" Foreground="#607D8B"/>
+                    <TextBlock Text="Plugin catalog" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 2 0 2">
-                        <TextBlock Text="Path:" Width="80" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBlock x:Name="CatalogPathText" Foreground="#37474F" TextWrapping="Wrap"/>
+                        <TextBlock Text="Path:" Width="80" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBlock x:Name="CatalogPathText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0 2 0 2">
-                        <TextBlock Text="Last updated:" Width="80" VerticalAlignment="Center" Foreground="#607D8B"/>
-                        <TextBlock x:Name="CatalogStatusText" Foreground="#37474F" TextWrapping="Wrap"/>
+                        <TextBlock Text="Last updated:" Width="80" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                        <TextBlock x:Name="CatalogStatusText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
                     </StackPanel>
                     <Button Width="170" Height="26" Margin="0 4 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnRefreshCatalogClick">
-                        <TextBlock Text="🔄 Refresh catalog"/>
+                        <TextBlock Text="&#x1F504; Refresh catalog"/>
                     </Button>
                 </StackPanel>
             </ScrollViewer>

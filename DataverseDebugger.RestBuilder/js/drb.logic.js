@@ -373,6 +373,7 @@ DRB.Logic.CompleteInitialize = function () {
     DRB.Metadata.DataverseCustomAPIsLoaded = false; // set DataverseCustomAPILoaded as false
     DRB.Metadata.DataverseCustomActionsLoaded = false; // set DataverseCustomActionLoaded as false
     DRB.Metadata.DataverseMetadataLoaded = false; // set DataverseMetadataLoaded as false
+    DRB.Settings.IsInitialized = false;
 
     // hide the main content because CurrentNode is now null
     $("#" + DRB.DOM.MainContent.Id).hide();
@@ -391,7 +392,23 @@ DRB.Logic.CompleteInitialize = function () {
 
     // retrieve tables
     DRB.UI.ShowLoading("Retrieving Tables and Users...");
-    setTimeout(function () {
+    var retrieveAttempts = 0;
+    var retrieveTables = function () {
+        var clientUrl = DRB.Xrm.GetClientUrl();
+        var needsToken = DRB.Xrm.IsXTBMode() || DRB.Xrm.IsBEMode() || DRB.Xrm.IsJWTMode() || DRB.Xrm.IsDVDTMode();
+        var token = DRB.Xrm.GetCurrentAccessToken();
+
+        if (!DRB.Utilities.HasValue(clientUrl) || (needsToken && !DRB.Utilities.HasValue(token))) {
+            retrieveAttempts++;
+            if (retrieveAttempts <= 5) {
+                setTimeout(retrieveTables, DRB.Settings.TimeoutDelay);
+                return;
+            }
+            DRB.UI.HideLoading();
+            DRB.UI.ShowError("DRB.Common.RetrieveTables Error", "Missing connection context. Please reopen the tab.");
+            return;
+        }
+
         DRB.Common.RetrieveTables()
             .done(function (data) {
                 DRB.Metadata.Tables = DRB.Common.MapTables(data, "Name");
@@ -422,8 +439,9 @@ DRB.Logic.CompleteInitialize = function () {
                                 }
                             }
                         }
-                        // load nodes
-                        DRB.Collection.LoadNodes(currentNodes);
+                        // load nodes (or create a default collection when none exists)
+                        if (currentNodes.length === 0) { DRB.Collection.CreateDefault(); }
+                        else { DRB.Collection.LoadNodes(currentNodes); }
 
                         // Set Tabs Warnings
                         var warningXrmWebApi = "";
@@ -487,12 +505,17 @@ DRB.Logic.CompleteInitialize = function () {
                                 }
                             }
                         });
+                        DRB.Settings.IsInitialized = true;
+                        if (typeof window !== "undefined" && typeof window.__drbFlushPendingCapturedRequests === "function") {
+                            window.__drbFlushPendingCapturedRequests();
+                        }
                         DRB.UI.HideLoading();
                     })
                     .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveUsers Error", DRB.Common.GetErrorMessage(xhr)); });
             })
             .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveTables Error", DRB.Common.GetErrorMessage(xhr)); });
-    }, DRB.Settings.TimeoutDelay);
+    };
+    setTimeout(retrieveTables, DRB.Settings.TimeoutDelay);
 }
 
 /**
@@ -560,7 +583,7 @@ DRB.Logic.BindRequestType = function (id) {
 
         // set default values if a property is missing
         if (!DRB.Utilities.HasValue(nodeConfiguration.version)) { nodeConfiguration.version = DRB.Settings.Versions[DRB.Settings.Versions.length - 1].Id; } // All except Retrieve NextLink
-        if (!DRB.Utilities.HasValue(nodeConfiguration.async)) { nodeConfiguration.async = true; } // All
+        if (!DRB.Utilities.HasValue(nodeConfiguration.async)) { nodeConfiguration.async = false; } // All
         if (!DRB.Utilities.HasValue(nodeConfiguration.tokenHeader)) { nodeConfiguration.tokenHeader = false; } // All
         if (!DRB.Utilities.HasValue(nodeConfiguration.impersonate)) { nodeConfiguration.impersonate = false; } // All
         if (!DRB.Utilities.HasValue(nodeConfiguration.impersonateType)) { nodeConfiguration.impersonateType = "mscrmcallerid"; } // All
@@ -585,6 +608,7 @@ DRB.Logic.BindRequestType = function (id) {
         if (!DRB.Utilities.HasValue(nodeConfiguration.manyToMany)) { nodeConfiguration.manyToMany = []; } // Retrieve Single, Retrieve Multiple, Create, Update
         if (!DRB.Utilities.HasValue(nodeConfiguration.filterCriteria)) { nodeConfiguration.filterCriteria = {}; } // Retrieve Multiple
         if (!DRB.Utilities.HasValue(nodeConfiguration.orderFields)) { nodeConfiguration.orderFields = []; } // Retrieve Multiple
+        if (!DRB.Utilities.HasValue(nodeConfiguration.capturedQueryOverrides)) { nodeConfiguration.capturedQueryOverrides = {}; } // Retrieve Single, Retrieve Multiple
         if (!DRB.Utilities.HasValue(nodeConfiguration.secondaryEntity)) { nodeConfiguration.secondaryEntity = null; } // Association
         if (!Array.isArray(nodeConfiguration.secondaryIds)) { nodeConfiguration.secondaryIds = [""]; } // Association
         if (!DRB.Utilities.HasValue(nodeConfiguration.relationship)) { nodeConfiguration.relationship = ""; } // Association
@@ -609,7 +633,7 @@ DRB.Logic.BindRequestType = function (id) {
             case "retrievesingle": // Retrieve Single
                 var properties = ["version", "async", "tokenHeader", "impersonate", "impersonateType", "impersonateId", "formattedValues",
                     "detectChanges", "primaryEntity", "useAlternateKey", "alternateKeyName", "alternateKeyFields",
-                    "primaryId", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany"];
+                    "primaryId", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany", "capturedQueryOverrides"];
 
                 DRB.Metadata.CurrentNode.data.configuration = DRB.Logic.SetNodeConfigurationProperties(nodeConfiguration, properties);
                 DRB.Logic.RetrieveSingle.Start();
@@ -618,7 +642,7 @@ DRB.Logic.BindRequestType = function (id) {
             case "retrievemultiple": // Retrieve Multiple
                 var properties = ["version", "async", "tokenHeader", "impersonate", "impersonateType", "impersonateId", "formattedValues",
                     "retrieveCount", "topCount", "primaryEntity", "primaryIdField", "fields", "oneToMany", "manyToOne", "manyToMany",
-                    "filterCriteria", "orderFields"];
+                    "filterCriteria", "orderFields", "capturedQueryOverrides"];
 
                 DRB.Metadata.CurrentNode.data.configuration = DRB.Logic.SetNodeConfigurationProperties(nodeConfiguration, properties);
                 DRB.Logic.RetrieveMultiple.Start();

@@ -55,12 +55,6 @@ namespace DataverseDebugger.App.Services
 
         private void LoadResources()
         {
-            if (TryLoadLocalResources(out var localResources) && localResources != null)
-            {
-                _webResources = localResources;
-                return;
-            }
-
             var packagedResources = LoadFromZipArchives();
             _webResources = packagedResources;
             LogService.Append($"[RestBuilder] Loaded {packagedResources.Count} resources from packaged extensions.");

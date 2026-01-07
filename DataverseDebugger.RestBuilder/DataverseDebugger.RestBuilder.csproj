@@ -13,7 +13,8 @@
     <NoWarn>$(NoWarn);CS2008</NoWarn>
     <RestBuilderPackageName>DataverseRESTBuilder.bundle.zip</RestBuilderPackageName>
     <RestBuilderJsDir>$(MSBuildProjectDirectory)\js</RestBuilderJsDir>
-    <RestBuilderCustomJs>$(RestBuilderJsDir)\drb_custom.js</RestBuilderCustomJs>
+    <RestBuilderCustomJs>$(IntermediateOutputPath)drb_custom.js</RestBuilderCustomJs>
+    <RestBuilderSourceCustomJs>$(RestBuilderJsDir)\drb_custom.js</RestBuilderSourceCustomJs>
     <RestBuilderOutputDir>$(MSBuildProjectDirectory)\bin\$(Configuration)\</RestBuilderOutputDir>
     <RestBuilderPackagePath>$(RestBuilderOutputDir)$(RestBuilderPackageName)</RestBuilderPackagePath>
   </PropertyGroup>
@@ -84,6 +85,34 @@
   </ItemGroup>
 
   <UsingTask TaskName="ZipDirectory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" />
+  <UsingTask TaskName="ConcatFiles" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <InputFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <OutputFile ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Text" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var outputDir = Path.GetDirectoryName(OutputFile);
+        if (!string.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir)) {
+            Directory.CreateDirectory(outputDir);
+        }
+        using (var writer = new StreamWriter(OutputFile, false, new UTF8Encoding(false))) {
+            foreach (var item in InputFiles) {
+                var path = item.ItemSpec;
+                if (!File.Exists(path)) { continue; }
+                using (var reader = new StreamReader(path)) {
+                    writer.Write(reader.ReadToEnd());
+                }
+                writer.WriteLine();
+                writer.WriteLine();
+            }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
 
   <!-- Prevent default compilation so no DLL/PDB is emitted -->
   <Target Name="CoreCompile">
@@ -93,7 +122,12 @@
   <Target Name="GenerateDrbCustomJs"
           Inputs="@(DrbSourceJs->'$(RestBuilderJsDir)\%(Identity)')"
           Outputs="$(RestBuilderCustomJs)">
-    <Exec Command="cmd /c generate_drb_custom_js.bat" WorkingDirectory="$(RestBuilderJsDir)" />
+    <ConcatFiles InputFiles="@(DrbSourceJs->'$(RestBuilderJsDir)\%(Identity)')" OutputFile="$(RestBuilderCustomJs)" />
+  </Target>
+
+  <Target Name="RemoveSourceDrbCustomJs" BeforeTargets="GenerateDrbCustomJs">
+    <Message Importance="High" Condition="Exists('$(RestBuilderSourceCustomJs)')" Text="[RestBuilder] Removing generated source file $(RestBuilderSourceCustomJs)" />
+    <Delete Files="$(RestBuilderSourceCustomJs)" Condition="Exists('$(RestBuilderSourceCustomJs)')" />
   </Target>
 
     <Target Name="BuildRestBuilderPackage"

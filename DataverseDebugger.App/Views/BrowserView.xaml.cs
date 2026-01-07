@@ -37,6 +37,9 @@ namespace DataverseDebugger.App.Views
         private static readonly int MaxItems = 500;
         private static readonly int MaxBodyBytes = 4096;
         private static readonly int ProxyDedupWindowMs = 2000;
+        private const string DarkModeFlagParam = "flags=themeOption%3Ddarkmode";
+        private const string DarkModeMenuLabel = "🌙 Dark Mode";
+        private const string LightModeMenuLabel = "☀ Light Mode";
 
         private readonly RunnerClient _runnerClient;
         private readonly ObservableCollection<CapturedRequest> _requests;
@@ -137,6 +140,7 @@ namespace DataverseDebugger.App.Views
                     _currentUserDataFolder = _userDataFolder;
                     UpdateNavButtons();
                     UpdateNavigateUrl();
+                    UpdateDarkModeMenuItem();
                     TryOpenDevToolsIfReady();
                 }
                 NavigateToDefault();
@@ -469,6 +473,38 @@ namespace DataverseDebugger.App.Views
             _webView?.CoreWebView2?.OpenDevToolsWindow();
         }
 
+        private void OnToggleDarkModeClick(object sender, RoutedEventArgs e)
+        {
+            var currentUrl = GetCurrentUrl();
+            if (string.IsNullOrWhiteSpace(currentUrl))
+            {
+                return;
+            }
+
+            var targetUrl = currentUrl;
+            if (!Uri.TryCreate(currentUrl, UriKind.Absolute, out _))
+            {
+                var normalized = NormalizeUrl(currentUrl);
+                if (!string.IsNullOrWhiteSpace(normalized))
+                {
+                    targetUrl = normalized;
+                }
+            }
+
+            var updatedUrl = ToggleDarkModeFlag(targetUrl, out _);
+
+            if (NavigateUrl != null)
+            {
+                _suppressUrlTextChanged = true;
+                NavigateUrl.Text = updatedUrl;
+                _suppressUrlTextChanged = false;
+            }
+
+            _settings.NavigateUrl = updatedUrl;
+            _webView?.CoreWebView2?.Navigate(updatedUrl);
+            UpdateDarkModeMenuItem(updatedUrl);
+        }
+
         private void NavigateToDefault()
         {
             var target = NormalizeUrl(NavigateUrl.Text);
@@ -513,6 +549,70 @@ namespace DataverseDebugger.App.Views
                 NavigateUrl.Text = source;
                 _suppressUrlTextChanged = false;
             }
+
+            UpdateDarkModeMenuItem(source);
+        }
+
+        private string? GetCurrentUrl()
+        {
+            var source = _webView?.CoreWebView2?.Source;
+            if (!string.IsNullOrWhiteSpace(source) &&
+                !source.StartsWith("about:blank", StringComparison.OrdinalIgnoreCase))
+            {
+                return source;
+            }
+
+            return NavigateUrl?.Text;
+        }
+
+        private void UpdateDarkModeMenuItem(string? url = null)
+        {
+            if (ToggleDarkModeMenuItem == null)
+            {
+                return;
+            }
+
+            var currentUrl = url ?? GetCurrentUrl();
+            var isDarkMode = HasDarkModeFlag(currentUrl);
+            ToggleDarkModeMenuItem.Header = isDarkMode ? LightModeMenuLabel : DarkModeMenuLabel;
+        }
+
+        private static bool HasDarkModeFlag(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return false;
+            }
+
+            return url.IndexOf(DarkModeFlagParam, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string ToggleDarkModeFlag(string url, out bool darkModeEnabled)
+        {
+            var hashIndex = url.IndexOf('#');
+            var fragment = hashIndex >= 0 ? url.Substring(hashIndex) : string.Empty;
+            var baseAndQuery = hashIndex >= 0 ? url.Substring(0, hashIndex) : url;
+
+            var queryIndex = baseAndQuery.IndexOf('?');
+            var baseUrl = queryIndex >= 0 ? baseAndQuery.Substring(0, queryIndex) : baseAndQuery;
+            var query = queryIndex >= 0 ? baseAndQuery.Substring(queryIndex + 1) : string.Empty;
+
+            var parts = query.Split('&', StringSplitOptions.RemoveEmptyEntries).ToList();
+            var hasFlag = parts.Any(part => string.Equals(part, DarkModeFlagParam, StringComparison.OrdinalIgnoreCase));
+
+            if (hasFlag)
+            {
+                parts.RemoveAll(part => string.Equals(part, DarkModeFlagParam, StringComparison.OrdinalIgnoreCase));
+                darkModeEnabled = false;
+            }
+            else
+            {
+                parts.Add(DarkModeFlagParam);
+                darkModeEnabled = true;
+            }
+
+            var updatedQuery = parts.Count > 0 ? "?" + string.Join("&", parts) : string.Empty;
+            return baseUrl + updatedQuery + fragment;
         }
 
         private static string? NormalizeUrl(string? raw)

@@ -401,6 +401,7 @@ FodyWeavers.xsd
 
 # Generated REST Builder package
 /DataverseDebugger.App/extensions/*.zip
+/DataverseDebugger.RestBuilder/js/drb_custom.js
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json

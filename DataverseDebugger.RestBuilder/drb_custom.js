@@ -1,4 +1,4 @@
-﻿// #region DRB.Namespaces
+// #region DRB.Namespaces
 var DRB = {}; // Application Namespace
 DRB.DOM = {}; // DOM
 DRB.Common = {}; // Common Functions
@@ -12,392 +12,6 @@ DRB.Collection = {}; // Collection Functions
 DRB.CustomUI = {}; // Custom UI Functions
 DRB.GenerateCode = {}; // Generate Code Functions
 DRB.GeneratePostman = {}; // Generate Postman Functions
-DRB.MetadataCache = {}; // Metadata caching helpers
-
-(function (cache) {
-    var pendingSaveHandle = null;
-    cache.SchemaVersion = 1;
-    cache.StoragePrefix = "DRB_MetadataTables_";
-    cache.MaxAgeMs = 1000 * 60 * 60 * 12; // 12 hours
-
-    function hasLocalStorage() {
-        return typeof window !== "undefined" && typeof localStorage !== "undefined";
-    }
-
-    cache.isEnabled = function () {
-        if (!hasLocalStorage()) { return false; }
-        if (!DRB.Settings || DRB.Settings.LocalStorageAvailable !== true) { return false; }
-        return true;
-    };
-
-    cache.getCurrentVersion = function () {
-        if (DRB.Xrm && typeof DRB.Xrm.GetVersion === "function") { return DRB.Xrm.GetVersion(); }
-        return null;
-    };
-
-    cache.normalizedClientUrl = function () {
-        if (!DRB.Xrm || typeof DRB.Xrm.GetClientUrl !== "function") { return null; }
-        try {
-            var url = DRB.Xrm.GetClientUrl();
-            if (typeof url === "string" && url.length > 0) { return url.toLowerCase(); }
-        } catch { }
-        return null;
-    };
-
-    cache.getKey = function () {
-        var normalized = cache.normalizedClientUrl();
-        if (!normalized) { return null; }
-        return cache.StoragePrefix + normalized;
-    };
-
-    cache.clear = function () {
-        if (!cache.isEnabled()) { return; }
-        var key = cache.getKey();
-        if (!key) { return; }
-        try { localStorage.removeItem(key); } catch { }
-    };
-
-    cache.loadSnapshot = function () {
-        if (!cache.isEnabled()) { return null; }
-        var key = cache.getKey();
-        if (!key) { return null; }
-        var raw = null;
-        try { raw = localStorage.getItem(key); } catch { return null; }
-        if (!raw) { return null; }
-        try {
-            var parsed = JSON.parse(raw);
-            if (parsed.schemaVersion !== cache.SchemaVersion) { cache.clear(); return null; }
-            var normalized = cache.normalizedClientUrl();
-            if (parsed.clientUrl && normalized && parsed.clientUrl !== normalized) { cache.clear(); return null; }
-            if (parsed.cachedOn && (Date.now() - parsed.cachedOn) > cache.MaxAgeMs) { cache.clear(); return null; }
-            var currentVersion = cache.getCurrentVersion();
-            if (parsed.dataverseVersion && currentVersion && parsed.dataverseVersion !== currentVersion) { cache.clear(); return null; }
-            return parsed;
-        } catch {
-            cache.clear();
-            return null;
-        }
-    };
-
-    cache.tryHydrateTablesFromCache = function () {
-        var snapshot = cache.loadSnapshot();
-        if (!snapshot || !Array.isArray(snapshot.tables) || snapshot.tables.length === 0) { return false; }
-        var tables = cache.rehydrateTables(snapshot.tables);
-        if (!Array.isArray(tables) || tables.length === 0) { return false; }
-        DRB.Metadata.Tables = tables;
-        if (Array.isArray(snapshot.users) && snapshot.users.length > 0) {
-            var users = cache.rehydrateUsers(snapshot.users);
-            if (Array.isArray(users) && users.length > 0) { DRB.Metadata.Users = users; }
-        }
-        return true;
-    };
-
-    cache.requestSave = function (force) {
-        if (!cache.isEnabled()) { return; }
-        if (!Array.isArray(DRB.Metadata.Tables) || DRB.Metadata.Tables.length === 0) { return; }
-        if (force === true) {
-            if (pendingSaveHandle) { clearTimeout(pendingSaveHandle); pendingSaveHandle = null; }
-            cache.writeSnapshot(DRB.Metadata.Tables);
-            return;
-        }
-        if (pendingSaveHandle) { clearTimeout(pendingSaveHandle); }
-        pendingSaveHandle = setTimeout(function () {
-            pendingSaveHandle = null;
-            cache.writeSnapshot(DRB.Metadata.Tables);
-        }, 500);
-    };
-
-    cache.writeSnapshot = function (tables) {
-        var snapshot = cache.buildSnapshot(tables);
-        if (!snapshot) { return; }
-        var key = cache.getKey();
-        if (!key) { return; }
-        try { localStorage.setItem(key, JSON.stringify(snapshot)); } catch { }
-    };
-
-    cache.buildSnapshot = function (tables) {
-        if (!Array.isArray(tables) || tables.length === 0) { return null; }
-        var sanitized = tables.map(function (table) { return cache.extractTable(table); }).filter(Boolean);
-        if (sanitized.length === 0) { return null; }
-        var sanitizedUsers = cache.extractUsers(DRB.Metadata.Users);
-        return {
-            schemaVersion: cache.SchemaVersion,
-            cachedOn: Date.now(),
-            dataverseVersion: cache.getCurrentVersion(),
-            clientUrl: cache.normalizedClientUrl(),
-            tables: sanitized,
-            users: sanitizedUsers
-        };
-    };
-
-    cache.extractTable = function (table) {
-        if (!table) { return null; }
-        var snapshot = {
-            LogicalName: table.LogicalName,
-            Name: table.Name,
-            SchemaName: table.SchemaName,
-            EntitySetName: table.EntitySetName,
-            PrimaryIdAttribute: table.PrimaryIdAttribute,
-            PrimaryNameAttribute: table.PrimaryNameAttribute,
-            ObjectTypeCode: table.ObjectTypeCode,
-            IsActivity: table.IsActivity,
-            IsVirtual: table.IsVirtual === true,
-            HasHierarchy: table.HasHierarchy === true,
-            ColumnsLoaded: table.ColumnsLoaded === true,
-            RelationshipsLoaded: table.RelationshipsLoaded === true,
-            AlternateKeysLoaded: table.AlternateKeysLoaded === true,
-            SystemViewsLoaded: table.SystemViewsLoaded === true,
-            PersonalViewsLoaded: table.PersonalViewsLoaded === true
-        };
-
-        if (snapshot.ColumnsLoaded === true) { snapshot.Columns = cache.extractColumns(table.Columns); }
-        if (snapshot.RelationshipsLoaded === true) {
-            snapshot.OneToManyRelationships = cache.extractRelationships(table.OneToManyRelationships);
-            snapshot.ManyToOneRelationships = cache.extractRelationships(table.ManyToOneRelationships);
-            snapshot.ManyToManyRelationships = cache.extractRelationships(table.ManyToManyRelationships);
-        }
-        if (snapshot.AlternateKeysLoaded === true) { snapshot.AlternateKeys = cache.extractAlternateKeys(table.AlternateKeys); }
-        if (snapshot.SystemViewsLoaded === true) { snapshot.SystemViews = cache.extractSystemViews(table.SystemViews); }
-        if (snapshot.PersonalViewsLoaded === true) { snapshot.PersonalViews = cache.extractPersonalViews(table.PersonalViews); }
-        return snapshot;
-    };
-
-    cache.extractColumns = function (columns) {
-        if (!Array.isArray(columns) || columns.length === 0) { return []; }
-        return columns.map(function (column) {
-            return {
-                LogicalName: column.LogicalName,
-                Name: column.Name,
-                SchemaName: column.SchemaName,
-                AttributeType: column.AttributeType,
-                IsPrimaryIdAttribute: column.IsPrimaryIdAttribute === true,
-                IsPrimaryNameAttribute: column.IsPrimaryNameAttribute === true,
-                RequiredLevel: column.RequiredLevel,
-                IsValidForRead: column.IsValidForRead,
-                IsValidForCreate: column.IsValidForCreate,
-                IsValidForUpdate: column.IsValidForUpdate,
-                IsValidForFilter: column.IsValidForFilter,
-                IsValidForOrder: column.IsValidForOrder,
-                ODataName: column.ODataName,
-                AttributeOf: column.AttributeOf,
-                OptionValues: cache.extractOptionValues(column.OptionValues),
-                AdditionalProperties: column.AdditionalProperties
-            };
-        });
-    };
-
-    cache.extractOptionValues = function (optionValues) {
-        if (!Array.isArray(optionValues) || optionValues.length === 0) { return null; }
-        return optionValues.map(function (optionValue) {
-            return { Value: optionValue.Value, Label: optionValue.Label };
-        });
-    };
-
-    cache.extractRelationships = function (relationships) {
-        if (!Array.isArray(relationships) || relationships.length === 0) { return []; }
-        return relationships.map(function (relationship) {
-            return {
-                SchemaName: relationship.SchemaName,
-                Type: relationship.Type,
-                SourceTable: relationship.SourceTable,
-                TargetTable: relationship.TargetTable,
-                TargetTableName: relationship.TargetTableName,
-                NavigationProperty: relationship.NavigationProperty,
-                NavigationAttribute: relationship.NavigationAttribute,
-                NavigationAttributeName: relationship.NavigationAttributeName,
-                IsHierarchical: relationship.IsHierarchical === true,
-                Columns: cache.extractRelationshipColumns(relationship.Columns)
-            };
-        });
-    };
-
-    cache.extractRelationshipColumns = function (columns) {
-        if (!Array.isArray(columns) || columns.length === 0) { return []; }
-        return columns.map(function (column) {
-            return {
-                RelationshipSchemaName: column.RelationshipSchemaName,
-                RelationshipType: column.RelationshipType,
-                RelationshipNavigationProperty: column.RelationshipNavigationProperty,
-                RelationshipNavigationAttribute: column.RelationshipNavigationAttribute,
-                RelationshipNavigationAttributeName: column.RelationshipNavigationAttributeName,
-                TargetTableLogicalName: column.TargetTableLogicalName,
-                TargetTableName: column.TargetTableName,
-                ColumnLogicalName: column.ColumnLogicalName,
-                ColumnName: column.Name,
-                ColumnSchemaName: column.ColumnSchemaName,
-                ColumnAttributeType: column.ColumnAttributeType,
-                ColumnIsPrimaryIdAttribute: column.ColumnIsPrimaryIdAttribute,
-                ColumnIsPrimaryNameAttribute: column.ColumnIsPrimaryNameAttribute,
-                ColumnRequiredLevel: column.ColumnRequiredLevel,
-                ColumnIsValidForRead: column.ColumnIsValidForRead,
-                ColumnIsValidForCreate: column.ColumnIsValidForCreate,
-                ColumnIsValidForUpdate: column.ColumnIsValidForUpdate,
-                ColumnAdditionalProperties: column.ColumnAdditionalProperties
-            };
-        });
-    };
-
-    cache.extractAlternateKeys = function (keys) {
-        if (!Array.isArray(keys) || keys.length === 0) { return []; }
-        return keys.map(function (key) {
-            return {
-                LogicalName: key.LogicalName,
-                Name: key.Name,
-                SchemaName: key.SchemaName,
-                KeyAttributes: key.KeyAttributes
-            };
-        });
-    };
-
-    cache.extractSystemViews = function (views) {
-        if (!Array.isArray(views) || views.length === 0) { return []; }
-        return views.map(function (view) {
-            return {
-                Id: view.Id,
-                Name: view.Name,
-                TableLogicalName: view.TableLogicalName,
-                IsDefault: view.IsDefault,
-                LayoutXml: view.LayoutXml
-            };
-        });
-    };
-
-    cache.extractPersonalViews = function (views) {
-        if (!Array.isArray(views) || views.length === 0) { return []; }
-        return views.map(function (view) {
-            return {
-                Id: view.Id,
-                Name: view.Name,
-                TableLogicalName: view.TableLogicalName,
-                LayoutXml: view.LayoutXml
-            };
-        });
-    };
-
-    cache.rehydrateTables = function (snapshots) {
-        if (!Array.isArray(snapshots) || snapshots.length === 0) { return null; }
-        var tables = [];
-        snapshots.forEach(function (snapshot) {
-            if (!snapshot) { return; }
-            var table = new DRB.Models.Table(snapshot.LogicalName, snapshot.Name, snapshot.SchemaName, snapshot.EntitySetName,
-                snapshot.PrimaryIdAttribute, snapshot.PrimaryNameAttribute, snapshot.ObjectTypeCode, snapshot.IsActivity, snapshot.IsVirtual ? snapshot.LogicalName : null, snapshot.IsVirtual ? snapshot.LogicalName : null);
-            table.IsVirtual = snapshot.IsVirtual === true;
-            table.HasHierarchy = snapshot.HasHierarchy === true;
-            table.ColumnsLoaded = snapshot.ColumnsLoaded === true;
-            table.RelationshipsLoaded = snapshot.RelationshipsLoaded === true;
-            table.AlternateKeysLoaded = snapshot.AlternateKeysLoaded === true;
-            table.SystemViewsLoaded = snapshot.SystemViewsLoaded === true;
-            table.PersonalViewsLoaded = snapshot.PersonalViewsLoaded === true;
-
-            if (table.ColumnsLoaded === true && Array.isArray(snapshot.Columns)) {
-                table.Columns = snapshot.Columns.map(function (columnSnapshot) { return cache.rehydrateColumn(columnSnapshot); }).filter(Boolean);
-            }
-            if (table.RelationshipsLoaded === true) {
-                if (Array.isArray(snapshot.OneToManyRelationships)) {
-                    table.OneToManyRelationships = snapshot.OneToManyRelationships.map(function (relationshipSnapshot) {
-                        return cache.rehydrateRelationship(relationshipSnapshot);
-                    }).filter(Boolean);
-                }
-                if (Array.isArray(snapshot.ManyToOneRelationships)) {
-                    table.ManyToOneRelationships = snapshot.ManyToOneRelationships.map(function (relationshipSnapshot) {
-                        return cache.rehydrateRelationship(relationshipSnapshot);
-                    }).filter(Boolean);
-                }
-                if (Array.isArray(snapshot.ManyToManyRelationships)) {
-                    table.ManyToManyRelationships = snapshot.ManyToManyRelationships.map(function (relationshipSnapshot) {
-                        return cache.rehydrateRelationship(relationshipSnapshot);
-                    }).filter(Boolean);
-                }
-            }
-            if (table.AlternateKeysLoaded === true && Array.isArray(snapshot.AlternateKeys)) {
-                table.AlternateKeys = snapshot.AlternateKeys.map(function (keySnapshot) { return cache.rehydrateAlternateKey(keySnapshot); }).filter(Boolean);
-            }
-            if (table.SystemViewsLoaded === true && Array.isArray(snapshot.SystemViews)) {
-                table.SystemViews = snapshot.SystemViews.map(function (viewSnapshot) { return cache.rehydrateSystemView(viewSnapshot); }).filter(Boolean);
-            }
-            if (table.PersonalViewsLoaded === true && Array.isArray(snapshot.PersonalViews)) {
-                table.PersonalViews = snapshot.PersonalViews.map(function (viewSnapshot) { return cache.rehydratePersonalView(viewSnapshot); }).filter(Boolean);
-            }
-            tables.push(table);
-        });
-        return tables;
-    };
-
-    cache.rehydrateColumn = function (snapshot) {
-        if (!snapshot) { return null; }
-        var column = new DRB.Models.Column(snapshot.LogicalName, snapshot.Name, snapshot.SchemaName, snapshot.AttributeType,
-            snapshot.IsPrimaryIdAttribute === true, snapshot.IsPrimaryNameAttribute === true, snapshot.RequiredLevel,
-            snapshot.IsValidForRead, snapshot.IsValidForCreate, snapshot.IsValidForUpdate, snapshot.AdditionalProperties || {});
-        column.AttributeOf = snapshot.AttributeOf;
-        column.ODataName = snapshot.ODataName || column.ODataName;
-        column.IsValidForFilter = snapshot.IsValidForFilter !== undefined ? snapshot.IsValidForFilter : column.IsValidForFilter;
-        column.IsValidForOrder = snapshot.IsValidForOrder !== undefined ? snapshot.IsValidForOrder : column.IsValidForOrder;
-        var optionValues = cache.rehydrateOptionValues(snapshot.OptionValues);
-        if (optionValues) { column.OptionValues = optionValues; }
-        return column;
-    };
-
-    cache.rehydrateOptionValues = function (optionValues) {
-        if (!Array.isArray(optionValues) || optionValues.length === 0) { return null; }
-        return optionValues.map(function (optionValue) {
-            return new DRB.Models.OptionSetValue(optionValue.Value, optionValue.Label);
-        });
-    };
-
-    cache.rehydrateRelationship = function (snapshot) {
-        if (!snapshot) { return null; }
-        var relationship = new DRB.Models.Relationship(snapshot.SchemaName, snapshot.Type, snapshot.SourceTable, snapshot.TargetTable,
-            snapshot.NavigationProperty, snapshot.NavigationAttribute, snapshot.IsHierarchical);
-        relationship.TargetTableName = snapshot.TargetTableName;
-        relationship.NavigationAttributeName = snapshot.NavigationAttributeName;
-        if (Array.isArray(snapshot.Columns)) {
-            relationship.Columns = snapshot.Columns.map(function (columnSnapshot) { return cache.rehydrateRelationshipColumn(columnSnapshot); });
-        }
-        return relationship;
-    };
-
-    cache.rehydrateRelationshipColumn = function (snapshot) {
-        if (!snapshot) { return null; }
-        return new DRB.Models.RelationshipColumn(snapshot.RelationshipSchemaName, snapshot.RelationshipType, snapshot.RelationshipNavigationProperty,
-            snapshot.RelationshipNavigationAttribute, snapshot.RelationshipNavigationAttributeName, snapshot.TargetTableLogicalName,
-            snapshot.TargetTableName, snapshot.ColumnLogicalName, snapshot.ColumnName, snapshot.ColumnSchemaName, snapshot.ColumnAttributeType,
-            snapshot.ColumnIsPrimaryIdAttribute, snapshot.ColumnIsPrimaryNameAttribute, snapshot.ColumnRequiredLevel,
-            snapshot.ColumnIsValidForRead, snapshot.ColumnIsValidForCreate, snapshot.ColumnIsValidForUpdate, snapshot.ColumnAdditionalProperties || {});
-    };
-
-    cache.rehydrateAlternateKey = function (snapshot) {
-        if (!snapshot) { return null; }
-        return new DRB.Models.AlternateKey(snapshot.LogicalName, snapshot.Name, snapshot.SchemaName, snapshot.KeyAttributes);
-    };
-
-    cache.rehydrateSystemView = function (snapshot) {
-        if (!snapshot) { return null; }
-        return new DRB.Models.SystemView(snapshot.Id, snapshot.Name, snapshot.TableLogicalName, snapshot.IsDefault, snapshot.LayoutXml);
-    };
-
-    cache.rehydratePersonalView = function (snapshot) {
-        if (!snapshot) { return null; }
-        return new DRB.Models.PersonalView(snapshot.Id, snapshot.Name, snapshot.TableLogicalName, snapshot.LayoutXml);
-    };
-
-    cache.extractUsers = function (users) {
-        if (!Array.isArray(users) || users.length === 0) { return null; }
-        return users.map(function (user) {
-            return {
-                Id: user.Id,
-                Name: user.Name,
-                AADObjectId: user.AADObjectId
-            };
-        });
-    };
-
-    cache.rehydrateUsers = function (snapshots) {
-        if (!Array.isArray(snapshots) || snapshots.length === 0) { return null; }
-        return snapshots.map(function (snapshot) {
-            return new DRB.Models.User(snapshot.Id, snapshot.Name, snapshot.AADObjectId);
-        });
-    };
-}(DRB.MetadataCache));
 
 DRB.Logic = {}; // Functions defined for each operation
 DRB.Logic.RetrieveSingle = {}; // Retrieve Single Functions
@@ -411,71 +25,7 @@ DRB.Logic.PredefinedQuery = {}; // Predefined Query Functions
 DRB.Logic.DataverseExecute = {}; // Dataverse Action, Dataverse Function Functions
 DRB.Logic.ExecuteWorkflow = {}; // Execute Workflow Functions
 DRB.Logic.ManageFileImageData = {}; // Manage File Image Data Functions
-// #endregion  
- 
-DRB.Theme = DRB.Theme || (function () {
-    var current = "dark";
-    var listeners = [];
-    var domListenerAttached = false;
-
-    function updateDom() {
-        if (document.readyState === "loading") {
-            if (domListenerAttached === true) { return; }
-            domListenerAttached = true;
-            var onReady = function () {
-                domListenerAttached = false;
-                document.removeEventListener("DOMContentLoaded", onReady);
-                updateDom();
-            };
-            document.addEventListener("DOMContentLoaded", onReady);
-            return;
-        }
-
-        var body = document.body;
-        if (!body) { return; }
-
-        body.dataset.drbTheme = current;
-        body.classList.remove("drb-theme-dark", "drb-theme-light");
-        body.classList.add("drb-theme-" + current);
-        if (document.documentElement) {
-            document.documentElement.style.setProperty("color-scheme", current);
-        }
-    }
-
-    function applyTheme(theme) {
-        var normalized = theme === "light" ? "light" : "dark";
-        if (current === normalized && document.body && document.body.dataset.drbTheme === normalized) { return; }
-        current = normalized;
-        updateDom();
-        listeners.forEach(function (callback) {
-            try {
-                callback(normalized);
-            } catch (e) { }
-        });
-    }
-
-    function onChange(callback) {
-        if (typeof callback === "function") {
-            listeners.push(callback);
-        }
-    }
-
-    updateDom();
-
-    return {
-        apply: applyTheme,
-        onChange: onChange,
-        current: function () { return current; }
-    };
-}());
-
-if (typeof window !== "undefined" && typeof window.__drbApplyTheme !== "function") {
-    window.__drbApplyTheme = function (theme) {
-        if (window.DRB && DRB.Theme) {
-            DRB.Theme.apply(theme);
-        }
-    };
-}
+// #endregion
 
 // #region DRB.DOM
 // Main Content
@@ -503,9 +53,9 @@ DRB.DOM.TabsWarning = { Id: "tabs_warning_" };
 DRB.DOM.Collection = {};
 DRB.DOM.Collection.Menu = { Id: "mnu_file" };
 DRB.DOM.Collection.LoadInput = { Id: "inp_loadfile" };
-DRB.DOM.Collection.NewButton = { Id: "btn_newcollection", Name: "New Collection", Class: "dropdown-item" };
-DRB.DOM.Collection.LoadButton = { Id: "btn_loadcollection", Name: "Load Collection", Class: "dropdown-item" };
-DRB.DOM.Collection.SaveButton = { Id: "btn_savecollection", Name: "Save Collection", Class: "dropdown-item" };
+DRB.DOM.Collection.NewButton = { Id: "btn_newcollection", Name: "New", Class: "dropdown-item" };
+DRB.DOM.Collection.LoadButton = { Id: "btn_loadcollection", Name: "&#x21E9; Load", Class: "dropdown-item" };
+DRB.DOM.Collection.SaveButton = { Id: "btn_savecollection", Name: "&#x21E7; Save", Class: "dropdown-item" };
 
 // Get Access Token (BE)
 DRB.DOM.AccessToken = {}
@@ -515,12 +65,13 @@ DRB.DOM.AccessToken.RecentEnvironmentsDiv = { Id: "div_recentenvironments" }; //
 DRB.DOM.AccessToken.RecentEnvironmentsSpan = { Id: "span_recentenvironments", Name: "Recent Environment URLs" };
 DRB.DOM.AccessToken.RecentEnvironmentsDropdown = { Id: "cbx_recentenvironments", Name: "Select an Environment URL" };
 
+// Show Token
+
 // Request Type
 DRB.DOM.RequestType = {};
 DRB.DOM.RequestType.Div = { Id: "request_name", Name: "Request Name" };
 DRB.DOM.RequestType.Span = { Id: "span_request", Name: "Request Type" };
 DRB.DOM.RequestType.Dropdown = { Id: "cbx_requesttype", Name: "Select a Request Type" };
-DRB.DOM.RequestType.ExecuteButton = { Id: "btn_request_execute", Name: "Execute", Class: "btn-danger" };
 
 // Table
 DRB.DOM.Table = {};
@@ -1005,9 +556,10 @@ DRB.DOM.Lookup.HeaderPrimaryColumnSpan = { Id: "span_lookup_header_primarycolumn
 DRB.DOM.Lookup.SelectButton = { Id: "btn_selectlookup_", Name: "Select", Class: "btn-outline-secondary" };
 DRB.DOM.Lookup.NoRecordsSpan = { Id: "span_norecordslookup", Name: "No Records" };
 // #endregion
-// #endregion  
- 
-﻿// #region DRB.Utilities
+// #endregion
+
+
+// #region DRB.Utilities
 /**
  * Utilities - Has Value
  * Returns true if a parameter is not undefined, not null and not an empty string, otherwise returns false
@@ -1015,6 +567,43 @@ DRB.DOM.Lookup.NoRecordsSpan = { Id: "span_norecordslookup", Name: "No Records" 
  */
 DRB.Utilities.HasValue = function (parameter) {
     if (parameter !== undefined && parameter !== null && parameter !== "") { return true; } else { return false; }
+}
+
+/**
+ * Utilities - Format XML
+ * Returns a pretty printed XML string when possible
+ * @param {string} xml XML string
+ */
+DRB.Utilities.FormatXml = function (xml) {
+    if (!DRB.Utilities.HasValue(xml)) { return ""; }
+    var trimmed = ("" + xml).trim();
+    if (trimmed === "") { return ""; }
+
+    try {
+        if (typeof DOMParser === "undefined" || typeof XMLSerializer === "undefined") { return trimmed; }
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(trimmed, "application/xml");
+        var errors = doc.getElementsByTagName("parsererror");
+        if (errors && errors.length > 0) { return trimmed; }
+
+        var serialized = new XMLSerializer().serializeToString(doc);
+        var tokens = serialized.replace(/(>)(<)(\/*)/g, "$1\n$2$3").split("\n");
+        var indent = 0;
+        var formatted = [];
+
+        tokens.forEach(function (token) {
+            var line = token.trim();
+            if (line === "") { return; }
+            if (line.match(/^<\//)) { indent = Math.max(indent - 1, 0); }
+            var padding = new Array(indent + 1).join("  ");
+            formatted.push(padding + line);
+            if (line.match(/^<[^!?/][^>]*[^/]>$/)) { indent += 1; }
+        });
+
+        return formatted.join("\n");
+    } catch (e) {
+        return trimmed;
+    }
 }
 
 /**
@@ -1113,9 +702,10 @@ DRB.Utilities.CustomSort = function (property) {
         return result * sortOrder;
     }
 }
-// #endregion  
- 
-﻿// #region DRB.Xrm.GetDemoData
+// #endregion
+
+
+// #region DRB.Xrm.GetDemoData
 /**
  * Get Demo Data based on parameters
  * @param {any[]} queries Queries
@@ -1606,9 +1196,9 @@ DRB.Xrm.GetDemoMetadata = function () {
     </Function>  
 </Schema>`;
 }
-// #endregion  
- 
-﻿// #region DRB.Models
+// #endregion
+
+// #region DRB.Models
 /**
  * Models - Dropdown Option
  * @param {any} value Value
@@ -2178,8 +1768,8 @@ DRB.Models.DataverseTable = function (logicalName, name, schemaName, entitySetNa
 
     this.ToDropdownOption = function () { return new DRB.Models.DropdownOption(this.Id, this.Name, this.LogicalName); }
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.UI
 // #region bootstrap-select Functions
 /**
@@ -2351,12 +1941,12 @@ DRB.UI.DisplayDialog = function (title, message, className, size, okCallBack, as
         properties.closeButton = true;
         if (!DRB.Utilities.HasValue(confirmLabel)) { confirmLabel = "Yes"; }
         if (!DRB.Utilities.HasValue(cancelLabel)) { cancelLabel = "No"; }
-        properties.buttons = { cancel: { label: cancelLabel }, confirm: { label: confirmLabel, className: className } };
+        properties.buttons = { cancel: { label: cancelLabel, className: "btn-secondary" }, confirm: { label: confirmLabel, className: className } };
         properties.callback = function (result) { if (result === true) { okCallBack(); } };
-        return bootbox.confirm(properties);
+        bootbox.confirm(properties);
+    } else {
+        bootbox.dialog(properties);
     }
-
-    return bootbox.dialog(properties);
 }
 
 /**
@@ -2415,20 +2005,9 @@ DRB.UI.ShowLoading = function (message, size) {
  * @param {string} message Message
  * @param {string} size Size
  */
-DRB.UI.ShowMessage = function (message, size, duration) {
+DRB.UI.ShowMessage = function (message, size) {
     var loadingMessage = '<p class="drb-dialog__status">' + message + '</p>';
-    var dialog = DRB.UI.DisplayDialog(null, loadingMessage, null, size);
-    var timeout = typeof duration === "number" && duration > 0 ? duration : 2500;
-    if (timeout > 0) {
-        setTimeout(function () {
-            try {
-                if (dialog && typeof dialog.modal === "function") { dialog.modal("hide"); return; }
-            } catch (hideError) { }
-            try {
-                bootbox.hideAll();
-            } catch (fallbackError) { }
-        }, timeout);
-    }
+    DRB.UI.DisplayDialog(null, loadingMessage, null, size);
 }
 
 /**
@@ -2907,9 +2486,10 @@ DRB.UI.OpenLookup = function (settings) {
     }
 }
 // #endregion
-// #endregion  
- 
-﻿// #region DRB.Xrm
+// #endregion
+
+
+// #region DRB.Xrm
 /**
  * Xrm - Get Xrm Object
  */
@@ -3052,6 +2632,41 @@ DRB.Xrm.Retrieve = function (entitySetName, filters) {
 }
 
 /**
+ * Xrm - Retrieve (cached metadata)
+ * @param {string} entitySetName Entity Set Name
+ * @param {string} filters Filters
+ */
+DRB.Xrm.RetrieveCached = function (entitySetName, filters) {
+    var retrieveUrl = encodeURI(DRB.Xrm.GetClientUrl() + "/api/data/v9.0/" + entitySetName + "?" + filters);
+
+    if (DRB.Xrm.IsDemoMode()) { return $.when(DRB.Xrm.GetDemoData(entitySetName, filters)); }
+
+    return DRB.Xrm.ExecuteCachedRequest({
+        method: "GET",
+        url: retrieveUrl,
+        dataType: "json",
+        request: function () {
+            var token = DRB.Xrm.GetCurrentAccessToken();
+            return $.ajax({
+                type: "GET",
+                contentType: "application/json; charset=utf-8",
+                datatype: "json",
+                async: true,
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader("OData-MaxVersion", "4.0");
+                    xhr.setRequestHeader("OData-Version", "4.0");
+                    xhr.setRequestHeader("Accept", "application/json");
+                    xhr.setRequestHeader("Prefer", "odata.include-annotations=\"*\"");
+                    DRB.Xrm.ApplyMetadataHeaders(xhr);
+                    if (DRB.Utilities.HasValue(token)) { xhr.setRequestHeader("Authorization", "Bearer " + token); }
+                },
+                url: retrieveUrl
+            });
+        }
+    });
+}
+
+/**
  * Xrm - Retrieve Batch
  * @param {any[]} queries Queries
  */
@@ -3095,6 +2710,59 @@ DRB.Xrm.RetrieveBatch = function (queries) {
 }
 
 /**
+ * Xrm - Retrieve Batch (cached metadata)
+ * @param {any[]} queries Queries
+ */
+DRB.Xrm.RetrieveBatchCached = function (queries) {
+    var batchDescription = "batch_" + DRB.Utilities.GenerateGuid();
+    var data = [];
+    queries.forEach(function (query) {
+        var retrieveUrl = DRB.Xrm.GetClientUrl() + "/api/data/v9.0/" + query.EntitySetName + "?" + query.Filters;
+        data.push("--" + batchDescription);
+        data.push("Content-Type: application/http");
+        data.push("Content-Transfer-Encoding: binary");
+        data.push("");
+        data.push("GET " + retrieveUrl + " HTTP/1.1");
+        data.push("Content-Type: application/json");
+        data.push("OData-Version: 4.0");
+        data.push("OData-MaxVersion: 4.0");
+        data.push("Prefer: odata.include-annotations=\"*\"");
+        data.push("");
+    });
+    data.push("--" + batchDescription + "--");
+    var payload = data.join("\r\n");
+    var batchUrl = DRB.Xrm.GetClientUrl() + "/api/data/v9.0/$batch";
+    var cacheKey = DRB.Xrm.BuildBatchCacheKey(queries);
+
+    if (DRB.Xrm.IsDemoMode()) { return $.when(DRB.Xrm.GetDemoDataBatch(queries)); }
+
+    return DRB.Xrm.ExecuteCachedRequest({
+        method: "POST",
+        url: batchUrl,
+        body: payload,
+        cacheKey: cacheKey,
+        dataType: "text",
+        request: function () {
+            var token = DRB.Xrm.GetCurrentAccessToken();
+            return $.ajax({
+                method: "POST",
+                data: payload,
+                async: true,
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader("Content-Type", "multipart/mixed;boundary=" + batchDescription);
+                    xhr.setRequestHeader("OData-MaxVersion", "4.0");
+                    xhr.setRequestHeader("OData-Version", "4.0");
+                    xhr.setRequestHeader("Accept", "application/json");
+                    DRB.Xrm.ApplyMetadataHeaders(xhr, cacheKey);
+                    if (DRB.Utilities.HasValue(token)) { xhr.setRequestHeader("Authorization", "Bearer " + token); }
+                },
+                url: batchUrl
+            });
+        }
+    });
+}
+
+/**
  * Xrm - Retrieve Batches
  * @param {any[]} batchedQueries Batched Queries
  */
@@ -3104,6 +2772,20 @@ DRB.Xrm.RetrieveBatches = function (batchedQueries) {
         var queries = [];
         batchedQuery.forEach(function (query) { queries.push(query); });
         xrmCalls.push(DRB.Xrm.RetrieveBatch(queries));
+    });
+    return $.when.apply($, xrmCalls);
+}
+
+/**
+ * Xrm - Retrieve Batches (cached metadata)
+ * @param {any[]} batchedQueries Batched Queries
+ */
+DRB.Xrm.RetrieveBatchesCached = function (batchedQueries) {
+    var xrmCalls = [];
+    batchedQueries.forEach(function (batchedQuery) {
+        var queries = [];
+        batchedQuery.forEach(function (query) { queries.push(query); });
+        xrmCalls.push(DRB.Xrm.RetrieveBatchCached(queries));
     });
     return $.when.apply($, xrmCalls);
 }
@@ -3130,6 +2812,173 @@ DRB.Xrm.RetrieveMetadata = function () {
 }
 
 /**
+ * Xrm - Retrieve Metadata (cached metadata)
+ * Get $metadata content (XML)
+ */
+DRB.Xrm.RetrieveMetadataCached = function () {
+    if (DRB.Xrm.IsDemoMode()) { return $.when(DRB.Xrm.GetDemoMetadata()); }
+
+    var metadataUrl = DRB.Xrm.GetMetadataUrl();
+    return DRB.Xrm.ExecuteCachedRequest({
+        method: "GET",
+        url: metadataUrl,
+        dataType: "xml",
+        request: function () {
+            var token = DRB.Xrm.GetCurrentAccessToken();
+            return $.ajax({
+                type: "GET",
+                datatype: "xml",
+                async: true,
+                beforeSend: function (xhr) {
+                    DRB.Xrm.ApplyMetadataHeaders(xhr);
+                    if (DRB.Utilities.HasValue(token)) { xhr.setRequestHeader("Authorization", "Bearer " + token); }
+                },
+                url: metadataUrl
+            });
+        }
+    });
+}
+
+DRB.Xrm.IsWebViewHostAvailable = function () {
+    return typeof chrome !== "undefined" &&
+        DRB.Utilities.HasValue(chrome.webview) &&
+        typeof chrome.webview.postMessage === "function";
+}
+
+DRB.Xrm.ExecuteCachedRequest = function (options) {
+    var deferred = $.Deferred();
+    if (!options || !DRB.Utilities.HasValue(options.url) || !DRB.Utilities.HasValue(options.request)) {
+        deferred.reject();
+        return deferred.promise();
+    }
+
+    var method = options.method || "GET";
+    var url = options.url;
+    var body = options.body || null;
+    var dataType = options.dataType || "text";
+    var cacheKey = options.cacheKey || null;
+
+    var ajax = options.request();
+    ajax.done(function (data, textStatus, jqXHR) {
+        var responseText = "";
+        var statusCode = 200;
+        var contentType = "";
+        try {
+            if (DRB.Utilities.HasValue(jqXHR)) {
+                statusCode = jqXHR.status || statusCode;
+                responseText = jqXHR.responseText || "";
+                if (typeof jqXHR.getResponseHeader === "function") {
+                    contentType = jqXHR.getResponseHeader("Content-Type") || "";
+                }
+            }
+        } catch { }
+
+        if (DRB.Utilities.HasValue(responseText)) {
+            DRB.Xrm.StoreRestMetadataCache(method, url, body, responseText, statusCode, cacheKey, contentType);
+        }
+
+        deferred.resolve(data);
+    })
+        .fail(function (xhr) {
+            deferred.reject(xhr);
+        });
+
+    return deferred.promise();
+}
+
+DRB.Xrm.ParseCachedResponse = function (body, dataType) {
+    if (!DRB.Utilities.HasValue(body)) { return body; }
+    if (dataType === "xml") {
+        try { return $.parseXML(body); } catch { return body; }
+    }
+    if (dataType === "json") {
+        try { return JSON.parse(body); } catch { return body; }
+    }
+    return body;
+}
+
+DRB.Xrm.RequestRestMetadataCache = function (method, url, body, cacheKey) {
+    var deferred = $.Deferred();
+    if (!DRB.Xrm.IsWebViewHostAvailable()) {
+        deferred.resolve({ hit: false });
+        return deferred.promise();
+    }
+
+    var requestId = DRB.Utilities.GenerateGuid();
+    if (!DRB.Xrm._webViewRequests) { DRB.Xrm._webViewRequests = {}; }
+    DRB.Xrm._webViewRequests[requestId] = deferred;
+
+    var payload = { method: method, url: url };
+    if (DRB.Utilities.HasValue(body)) { payload.body = body; }
+    if (DRB.Utilities.HasValue(cacheKey)) { payload.cacheKey = cacheKey; }
+
+    var message = { action: "restmetadata-get", requestId: requestId, data: payload };
+    try { chrome.webview.postMessage(message); } catch { deferred.resolve({ hit: false }); }
+    return deferred.promise();
+}
+
+DRB.Xrm.StoreRestMetadataCache = function (method, url, body, responseText, statusCode, cacheKey, contentType) {
+    if (!DRB.Xrm.IsWebViewHostAvailable() || !DRB.Utilities.HasValue(responseText)) { return; }
+    var payload = {
+        method: method,
+        url: url,
+        statusCode: statusCode || 200,
+        responseText: responseText,
+        responseEncoding: "utf-8"
+    };
+    if (DRB.Utilities.HasValue(body)) { payload.body = body; }
+    if (DRB.Utilities.HasValue(cacheKey)) { payload.cacheKey = cacheKey; }
+    if (DRB.Utilities.HasValue(contentType)) { payload.contentType = contentType; }
+
+    var message = { action: "restmetadata-set", data: payload };
+    try { chrome.webview.postMessage(message); } catch { }
+}
+
+DRB.Xrm.HandleWebViewMessage = function (message) {
+    if (!message || !message.requestId) { return; }
+    if (!DRB.Xrm._webViewRequests) { return; }
+    var deferred = DRB.Xrm._webViewRequests[message.requestId];
+    if (!deferred) { return; }
+    delete DRB.Xrm._webViewRequests[message.requestId];
+    deferred.resolve(message);
+}
+
+DRB.Xrm.BuildBatchCacheKey = function (queries) {
+    if (!Array.isArray(queries) || queries.length === 0) { return ""; }
+    var parts = [];
+    queries.forEach(function (query) {
+        if (!DRB.Utilities.HasValue(query)) { return; }
+        var name = query.EntitySetName || "";
+        var filters = query.Filters || "";
+        parts.push(name + "?" + filters);
+    });
+    var joined = parts.join("||");
+    return DRB.Xrm.HashString(joined);
+}
+
+DRB.Xrm.HashString = function (value) {
+    if (!DRB.Utilities.HasValue(value)) { return ""; }
+    var hash = 0xcbf29ce484222325n;
+    for (var i = 0; i < value.length; i++) {
+        hash ^= BigInt(value.charCodeAt(i));
+        hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+    }
+    var hex = hash.toString(16);
+    while (hex.length < 16) { hex = "0" + hex; }
+    return hex;
+}
+
+DRB.Xrm.ApplyMetadataHeaders = function (xhr, cacheKey) {
+    if (!DRB.Utilities.HasValue(xhr)) { return; }
+    try {
+        xhr.setRequestHeader("x-drb-metadata", "1");
+        if (DRB.Utilities.HasValue(cacheKey)) {
+            xhr.setRequestHeader("x-drb-cachekey", cacheKey);
+        }
+    } catch { }
+}
+
+/**
  * Xrm - Get Server Version
  * @param {string} serverUrl Server Url
  * @param {string} token Token
@@ -3149,21 +2998,22 @@ DRB.Xrm.GetServerVersion = function (serverUrl, token) {
         url: serverUrl + "/api/data/v9.0/RetrieveVersion()"
     });
 }
-// #endregion  
- 
+// #endregion
+
+
 // #region DRB.Common.Xrm
 /**
  * Common - Retrieve Tables
  */
 DRB.Common.RetrieveTables = function () {
-    return DRB.Xrm.Retrieve("EntityDefinitions", "$select=LogicalName,SchemaName,DisplayName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,ObjectTypeCode,IsActivity,ExternalName,ExternalCollectionName");
+    return DRB.Xrm.RetrieveCached("EntityDefinitions", "$select=LogicalName,SchemaName,DisplayName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,ObjectTypeCode,IsActivity,ExternalName,ExternalCollectionName");
 }
 
 /**
  * Common - Retrieve Users
  */
 DRB.Common.RetrieveUsers = function () {
-    return DRB.Xrm.Retrieve("systemusers", "$select=systemuserid,fullname,azureactivedirectoryobjectid&$filter=azureactivedirectoryobjectid ne null");
+    return DRB.Xrm.RetrieveCached("systemusers", "$select=systemuserid,fullname,azureactivedirectoryobjectid&$filter=azureactivedirectoryobjectid ne null");
 }
 
 /**
@@ -3178,14 +3028,14 @@ DRB.Common.RetrieveSystemViews = function (tableLogicalNames) {
         query.Filters = "$select=savedqueryid,name,returnedtypecode,isdefault,layoutxml&$filter=returnedtypecode eq '" + tableLogicalName + "'";
         queries.push(query);
     });
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
  * Common - Retrieve Personal Views
  */
 DRB.Common.RetrievePersonalViews = function () {
-    return DRB.Xrm.Retrieve("userqueries", "$select=name,returnedtypecode,userqueryid");
+    return DRB.Xrm.RetrieveCached("userqueries", "$select=name,returnedtypecode,userqueryid");
 }
 
 /**
@@ -3211,7 +3061,7 @@ DRB.Common.RetrieveCustomAPIs = function () {
     queryResponseProperties.Filters = "$select=name,type,uniquename,logicalentityname&$expand=CustomAPIId($select=uniquename)&$filter=statuscode eq 1";
     queries.push(queryResponseProperties);
 
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
@@ -3294,14 +3144,14 @@ DRB.Common.RetrieveCustomActions = function () {
     queryResponseProperties.Filters = "fetchXml=" + encodeURIComponent(fetchResponseProperties);
     queries.push(queryResponseProperties);
 
-    return DRB.Xrm.RetrieveBatch(queries);
+    return DRB.Xrm.RetrieveBatchCached(queries);
 }
 
 /**
  * Common - Retrieve Metadata
  */
 DRB.Common.RetrieveMetadata = function () {
-    return DRB.Xrm.RetrieveMetadata();
+    return DRB.Xrm.RetrieveMetadataCached();
 }
 
 /**
@@ -3353,7 +3203,7 @@ DRB.Common.RetrieveTablesDetails = function (tableLogicalNames, includeRelations
         });
     });
 
-    return DRB.Xrm.RetrieveBatches(batchedQueries);
+    return DRB.Xrm.RetrieveBatchesCached(batchedQueries);
 }
 
 /**
@@ -3434,7 +3284,6 @@ DRB.Common.SetSystemViews = function (data, tables) {
             }
         }
     });
-    if (DRB.MetadataCache && typeof DRB.MetadataCache.requestSave === "function") { DRB.MetadataCache.requestSave(); }
 }
 
 /**
@@ -3507,10 +3356,10 @@ DRB.Common.SetTables = function (args, tables, mapRelationships, mapAlternateKey
             });
         }
     });
-    if (DRB.MetadataCache && typeof DRB.MetadataCache.requestSave === "function") { DRB.MetadataCache.requestSave(); }
 }
-// #endregion  
- 
+// #endregion
+
+
 // #region DRB.Common.Map
 /**
  * Common - Map Tables
@@ -4231,8 +4080,8 @@ DRB.Common.MapCustomActionResponseProperties = function (data, customActions) {
         });
     }
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Common
 /**
  * Common - Get Error Message
@@ -4602,8 +4451,8 @@ window.addEventListener("message", (event) => {
             break;
     }
 });
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic
 /**
  * Logic - Console To Results Editor
@@ -4686,40 +4535,6 @@ DRB.Logic.ExecuteCodeFromEditor = function () {
         }
     }, DRB.Settings.TimeoutDelay);
 }
-
-/**
- * Logic - Execute Configured Request
- */
-DRB.Logic.ExecuteConfiguredRequest = function () {
-    if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode)) {
-        DRB.UI.ShowMessage("Select a request before executing");
-        setTimeout(function () { DRB.UI.HideLoading(); }, DRB.Settings.TimeoutDelay);
-        return;
-    }
-
-    try { DRB.GenerateCode.Start(); } catch (generateError) { console.error(generateError); }
-
-    var sourceTabId = DRB.Settings.ExecutionSourceTab;
-    if (!DRB.Utilities.HasValue(sourceTabId)) {
-        if (Array.isArray(DRB.Settings.Tabs)) {
-            DRB.Settings.Tabs.forEach(function (tab) {
-                if (!DRB.Utilities.HasValue(sourceTabId) && DRB.Utilities.HasValue(tab.MoveToEditor) && tab.MoveToEditor === true) {
-                    sourceTabId = tab.Id;
-                }
-            });
-        }
-    }
-
-    if (!DRB.Utilities.HasValue(sourceTabId)) {
-        DRB.UI.ShowError("Execute Request", "Unable to locate a code source to execute. Try reloading the builder.");
-        return;
-    }
-
-    setTimeout(function () {
-        DRB.Logic.MoveCodeToMainEditor(sourceTabId);
-        DRB.Logic.ExecuteCodeFromEditor();
-    }, DRB.Settings.TimeoutDelay);
-};
 
 /**
  * Logic - Move Code To Main Editor
@@ -5032,137 +4847,131 @@ DRB.Logic.CompleteInitialize = function () {
 
     // retrieve tables
     DRB.UI.ShowLoading("Retrieving Tables and Users...");
-    setTimeout(function () { DRB.Logic.LoadTablesAndUsers(); }, DRB.Settings.TimeoutDelay);
+    var retrieveAttempts = 0;
+    var retrieveTables = function () {
+        var clientUrl = DRB.Xrm.GetClientUrl();
+        var needsToken = DRB.Xrm.IsXTBMode() || DRB.Xrm.IsBEMode() || DRB.Xrm.IsJWTMode() || DRB.Xrm.IsDVDTMode();
+        var token = DRB.Xrm.GetCurrentAccessToken();
+
+        if (!DRB.Utilities.HasValue(clientUrl) || (needsToken && !DRB.Utilities.HasValue(token))) {
+            retrieveAttempts++;
+            if (retrieveAttempts <= 5) {
+                setTimeout(retrieveTables, DRB.Settings.TimeoutDelay);
+                return;
+            }
+            DRB.UI.HideLoading();
+            DRB.UI.ShowError("DRB.Common.RetrieveTables Error", "Missing connection context. Please reopen the tab.");
+            return;
+        }
+
+        DRB.Common.RetrieveTables()
+            .done(function (data) {
+                DRB.Metadata.Tables = DRB.Common.MapTables(data, "Name");
+                DRB.Common.RetrieveUsers()
+                    .done(function (data2) {
+                        DRB.Metadata.Users = DRB.Common.MapUsers(data2, "Name");
+                        // create an empty data structure
+                        var currentNodes = [];
+
+                        // Check localStorage
+                        if (DRB.Settings.LocalStorageAvailable === true) {
+                            var storedJson = localStorage.getItem("DRB_" + DRB.Xrm.GetClientUrl());
+                            if (storedJson !== null) {
+                                try {
+                                    var parsedContent = JSON.parse(storedJson);
+                                    // version check
+                                    if (parsedContent.version > 1) {
+                                        // version not compatible, remove the localStorage item
+                                        localStorage.removeItem("DRB_" + DRB.Xrm.GetClientUrl());
+                                    } else {
+                                        currentNodes = [{}];
+                                        // import jsTree nodes to the new data structure
+                                        DRB.Collection.ImportNodes(parsedContent, currentNodes[0]);
+                                    }
+                                } catch (e) {
+                                    // something went wrong when parsing the file, remove the localStorage item
+                                    localStorage.removeItem("DRB_" + DRB.Xrm.GetClientUrl());
+                                }
+                            }
+                        }
+                        // load nodes (or create a default collection when none exists)
+                        if (currentNodes.length === 0) { DRB.Collection.CreateDefault(); }
+                        else { DRB.Collection.LoadNodes(currentNodes); }
+
+                        // Set Tabs Warnings
+                        var warningXrmWebApi = "";
+                        var warningClientUrl = "";
+                        var warningPortals = "NOTE: Inside DRB, Portals endpoint (<i>/_api/</i>) is routed to the default Web API endpoint";
+                        var warningEditor = "NOTE: console.log messages will appear inside the Results tab";
+                        var warningResults = "NOTE: Due to asynchronous calls the output can appear later";
+                        var warningFetchXML = "NOTE: Inside DRB for XrmToolBox you can send the code to <a target='_blank' href='https://fetchxmlbuilder.com'>FetchXML Builder</a>";
+						var warningSDK = "NOTE: the C# SDK syntax is experimental";
+                        // warnings when DRB is running outside a managed solution
+                        if (DRB.Xrm.IsXTBMode() || DRB.Xrm.IsBEMode() || DRB.Xrm.IsJWTMode() || DRB.Xrm.IsDVDTMode()) {
+                            if (DRB.Xrm.IsXTBMode()) {
+                                warningXrmWebApi = "NOTE: Xrm.WebApi is not available when DRB is executed inside XrmToolBox";
+                                warningClientUrl = "NOTE: Inside DRB for XrmToolBox, Xrm.Utility.getGlobalContext().getClientUrl() is routed to the Instance URL";
+                            }
+
+                            if (DRB.Xrm.IsBEMode()) {
+                                warningXrmWebApi = "NOTE: Xrm.WebApi is not available when DRB is executed inside Browser Extension";
+                                warningClientUrl = "NOTE: Inside DRB for Browser Extension, Xrm.Utility.getGlobalContext().getClientUrl() is routed to the Instance URL";
+                            }
+
+                            if (DRB.Xrm.IsJWTMode()) {
+                                warningXrmWebApi = "NOTE: Xrm.WebApi is not available when DRB is in JWT Mode";
+                                warningClientUrl = "NOTE: Inside DRB JWT Mode, Xrm.Utility.getGlobalContext().getClientUrl() is routed to the Instance URL";
+                            }
+
+                            if (DRB.Xrm.IsDVDTMode()) {
+                                warningXrmWebApi = "NOTE: Xrm.WebApi is not available when DRB is executed inside DVDT";
+                                warningClientUrl = "NOTE: Inside DRB for DVDT, Xrm.Utility.getGlobalContext().getClientUrl() is routed to the Instance URL";
+                            }
+                        }
+                        DRB.Settings.Tabs.forEach(function (tab) {
+                            if (DRB.Utilities.HasValue(tab.ShowWarning) && tab.ShowWarning === true) {
+                                if (DRB.Utilities.HasValue(tab.WarningXrmWebApi) && tab.WarningXrmWebApi === true) {
+                                    $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningXrmWebApi);
+                                }
+                                if (DRB.Utilities.HasValue(tab.WarningClientUrl) && tab.WarningClientUrl === true) {
+                                    $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningClientUrl);
+                                }
+                                if (DRB.Utilities.HasValue(tab.WarningPortals) && tab.WarningPortals === true) {
+                                    $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningPortals);
+                                }
+                                if (DRB.Utilities.HasValue(tab.WarningEditor) && tab.WarningEditor === true) {
+                                    $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningEditor);
+                                }
+                                if (DRB.Utilities.HasValue(tab.WarningResults) && tab.WarningResults === true) {
+                                    $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningResults);
+                                }
+                                if (DRB.Utilities.HasValue(tab.WarningFetchXML) && tab.WarningFetchXML === true) {
+                                    if (!DRB.Xrm.IsXTBMode()) {
+                                        $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningFetchXML);
+                                    } else {
+                                        if (DRB.Utilities.HasValue(tab.SendFetchXML) && tab.SendFetchXML === true) {
+                                            var btn_copyFetchXML = DRB.UI.CreateButton("btn_" + tab.Id + "_copyfetchxml", "Open in FetchXML Builder", "btn-secondary", DRB.Logic.SendCodeToFetchXMLBuilder, tab.Id);
+                                            $("#" + DRB.DOM.TabsWarning.Id + tab.Id).append(btn_copyFetchXML);
+                                        }
+                                    }
+                                }
+								if (DRB.Utilities.HasValue(tab.WarningSDK) && tab.WarningSDK === true) {
+                                    $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningSDK);
+                                }
+                            }
+                        });
+                        DRB.Settings.IsInitialized = true;
+                        if (typeof window !== "undefined" && typeof window.__drbFlushPendingCapturedRequests === "function") {
+                            window.__drbFlushPendingCapturedRequests();
+                        }
+                        DRB.UI.HideLoading();
+                    })
+                    .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveUsers Error", DRB.Common.GetErrorMessage(xhr)); });
+            })
+            .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveTables Error", DRB.Common.GetErrorMessage(xhr)); });
+    };
+    setTimeout(retrieveTables, DRB.Settings.TimeoutDelay);
 }
-
-DRB.Logic.LoadTablesAndUsers = function () {
-    var cacheHit = false;
-    try { cacheHit = DRB.MetadataCache.tryHydrateTablesFromCache(); } catch { cacheHit = false; }
-    if (cacheHit === true) {
-        DRB.Logic.ContinueInitializeAfterTables();
-        return;
-    }
-
-    DRB.Common.RetrieveTables()
-        .done(function (data) {
-            DRB.Metadata.Tables = DRB.Common.MapTables(data, "Name");
-            DRB.MetadataCache.requestSave(true);
-            DRB.Logic.ContinueInitializeAfterTables();
-        })
-        .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveTables Error", DRB.Common.GetErrorMessage(xhr)); });
-};
-
-DRB.Logic.ContinueInitializeAfterTables = function () {
-    if (Array.isArray(DRB.Metadata.Users) && DRB.Metadata.Users.length > 0) {
-        DRB.Logic.AfterUsersLoaded();
-        return;
-    }
-
-    DRB.Common.RetrieveUsers()
-        .done(function (data2) {
-            DRB.Metadata.Users = DRB.Common.MapUsers(data2, "Name");
-            if (DRB.MetadataCache && typeof DRB.MetadataCache.requestSave === "function") { DRB.MetadataCache.requestSave(); }
-            DRB.Logic.AfterUsersLoaded();
-        })
-        .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveUsers Error", DRB.Common.GetErrorMessage(xhr)); });
-};
-
-DRB.Logic.AfterUsersLoaded = function () {
-    // create an empty data structure
-    var currentNodes = [];
-
-    // Check localStorage
-    if (DRB.Settings.LocalStorageAvailable === true) {
-        var storedJson = localStorage.getItem("DRB_" + DRB.Xrm.GetClientUrl());
-        if (storedJson !== null) {
-            try {
-                var parsedContent = JSON.parse(storedJson);
-                // version check
-                if (parsedContent.version > 1) {
-                    // version not compatible, remove the localStorage item
-                    localStorage.removeItem("DRB_" + DRB.Xrm.GetClientUrl());
-                } else {
-                    currentNodes = [{}];
-                    // import jsTree nodes to the new data structure
-                    DRB.Collection.ImportNodes(parsedContent, currentNodes[0]);
-                }
-            } catch (e) {
-                // something went wrong when parsing the file, remove the localStorage item
-                localStorage.removeItem("DRB_" + DRB.Xrm.GetClientUrl());
-            }
-        }
-    }
-    // load nodes
-    DRB.Collection.LoadNodes(currentNodes);
-
-    // Set Tabs Warnings
-    var warningXrmWebApi = "";
-    var warningClientUrl = "";
-    var warningPortals = "NOTE: Inside DRB, Portals endpoint (<i>/_api/</i>) is routed to the default Web API endpoint";
-    var warningEditor = "NOTE: console.log messages will appear inside the Results tab";
-    var warningResults = "NOTE: Due to asynchronous calls the output can appear later";
-    var warningFetchXML = "NOTE: Inside DRB for XrmToolBox you can send the code to <a target='_blank' href='https://fetchxmlbuilder.com'>FetchXML Builder</a>";
-	var warningSDK = "NOTE: the C# SDK syntax is experimental";
-    // warnings when DRB is running outside a managed solution
-    if (DRB.Xrm.IsXTBMode() || DRB.Xrm.IsBEMode() || DRB.Xrm.IsJWTMode() || DRB.Xrm.IsDVDTMode()) {
-        if (DRB.Xrm.IsXTBMode()) {
-            warningXrmWebApi = "NOTE: Xrm.WebApi is not available when DRB is executed inside XrmToolBox";
-            warningClientUrl = "NOTE: Inside DRB for XrmToolBox, Xrm.Utility.getGlobalContext().getClientUrl() is routed to the Instance URL";
-        }
-
-        if (DRB.Xrm.IsBEMode()) {
-            warningXrmWebApi = "NOTE: Xrm.WebApi is not available when DRB is executed inside Browser Extension";
-            warningClientUrl = "NOTE: Inside DRB for Browser Extension, Xrm.Utility.getGlobalContext().getClientUrl() is routed to the Instance URL";
-        }
-
-        if (DRB.Xrm.IsJWTMode()) {
-            warningXrmWebApi = "NOTE: Xrm.WebApi is not available when DRB is in JWT Mode";
-            warningClientUrl = "NOTE: Inside DRB JWT Mode, Xrm.Utility.getGlobalContext().getClientUrl() is routed to the Instance URL";
-        }
-
-        if (DRB.Xrm.IsDVDTMode()) {
-            warningXrmWebApi = "NOTE: Xrm.WebApi is not available when DRB is executed inside DVDT";
-            warningClientUrl = "NOTE: Inside DRB for DVDT, Xrm.Utility.getGlobalContext().getClientUrl() is routed to the Instance URL";
-        }
-    }
-    DRB.Settings.Tabs.forEach(function (tab) {
-        if (DRB.Utilities.HasValue(tab.ShowWarning) && tab.ShowWarning === true) {
-            if (DRB.Utilities.HasValue(tab.WarningXrmWebApi) && tab.WarningXrmWebApi === true) {
-                $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningXrmWebApi);
-            }
-            if (DRB.Utilities.HasValue(tab.WarningClientUrl) && tab.WarningClientUrl === true) {
-                $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningClientUrl);
-            }
-            if (DRB.Utilities.HasValue(tab.WarningPortals) && tab.WarningPortals === true) {
-                $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningPortals);
-            }
-            if (DRB.Utilities.HasValue(tab.WarningEditor) && tab.WarningEditor === true) {
-                $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningEditor);
-            }
-            if (DRB.Utilities.HasValue(tab.WarningResults) && tab.WarningResults === true) {
-                $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningResults);
-            }
-            if (DRB.Utilities.HasValue(tab.WarningFetchXML) && tab.WarningFetchXML === true) {
-                if (!DRB.Xrm.IsXTBMode()) {
-                    $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningFetchXML);
-                } else {
-                    if (DRB.Utilities.HasValue(tab.SendFetchXML) && tab.SendFetchXML === true) {
-                        var btn_copyFetchXML = DRB.UI.CreateButton("btn_" + tab.Id + "_copyfetchxml", "Open in FetchXML Builder", "btn-secondary", DRB.Logic.SendCodeToFetchXMLBuilder, tab.Id);
-                        $("#" + DRB.DOM.TabsWarning.Id + tab.Id).append(btn_copyFetchXML);
-                    }
-                }
-            }
-			if (DRB.Utilities.HasValue(tab.WarningSDK) && tab.WarningSDK === true) {
-                $("#" + DRB.DOM.TabsWarning.Id + tab.Id).html(warningSDK);
-            }
-        }
-    });
-    DRB.Settings.IsInitialized = true;
-    if (typeof window !== "undefined" && typeof window.__drbFlushPendingCapturedRequests === "function") {
-        window.__drbFlushPendingCapturedRequests();
-    }
-    DRB.UI.HideLoading();
-};
 
 /**
  * Logic - Edit Request
@@ -5208,10 +5017,6 @@ DRB.Logic.BindRequestType = function (id) {
         $("#a_" + DRB.Settings.Tabs[0].Id).click();
 
         DRB.Settings.Tabs.forEach(function (tab) {
-            if (DRB.Utilities.HasValue(tab.Hidden) && tab.Hidden === true) {
-                $("#a_" + tab.Id).hide();
-                return;
-            }
             var showDefaultTab = true;
             if (DRB.Utilities.HasValue(tab.EnabledRequests) && tab.EnabledRequests.length > 0) {
                 showDefaultTab = false;
@@ -5258,6 +5063,7 @@ DRB.Logic.BindRequestType = function (id) {
         if (!DRB.Utilities.HasValue(nodeConfiguration.manyToMany)) { nodeConfiguration.manyToMany = []; } // Retrieve Single, Retrieve Multiple, Create, Update
         if (!DRB.Utilities.HasValue(nodeConfiguration.filterCriteria)) { nodeConfiguration.filterCriteria = {}; } // Retrieve Multiple
         if (!DRB.Utilities.HasValue(nodeConfiguration.orderFields)) { nodeConfiguration.orderFields = []; } // Retrieve Multiple
+        if (!DRB.Utilities.HasValue(nodeConfiguration.capturedQueryOverrides)) { nodeConfiguration.capturedQueryOverrides = {}; } // Retrieve Single, Retrieve Multiple
         if (!DRB.Utilities.HasValue(nodeConfiguration.secondaryEntity)) { nodeConfiguration.secondaryEntity = null; } // Association
         if (!Array.isArray(nodeConfiguration.secondaryIds)) { nodeConfiguration.secondaryIds = [""]; } // Association
         if (!DRB.Utilities.HasValue(nodeConfiguration.relationship)) { nodeConfiguration.relationship = ""; } // Association
@@ -5276,7 +5082,6 @@ DRB.Logic.BindRequestType = function (id) {
         if (!DRB.Utilities.HasValue(nodeConfiguration.fileContent)) { nodeConfiguration.fileContent = null; } // Manage File Data, Manage Image Data
         if (!DRB.Utilities.HasValue(nodeConfiguration.fileFullSize)) { nodeConfiguration.fileFullSize = false; } // Manage Image Data
         if (!DRB.Utilities.HasValue(nodeConfiguration.fileBase64)) { nodeConfiguration.fileBase64 = false; } // Manage File Data, Manage Image Data
-        if (!DRB.Utilities.HasValue(nodeConfiguration.capturedQueryOverrides)) { nodeConfiguration.capturedQueryOverrides = {}; }
 
         // Check the selected Request Type
         switch (requestTypeValue) {
@@ -5452,17 +5257,6 @@ DRB.Logic.FillCurrentMetadata = function (table) {
     DRB.Metadata.CurrentManyToOne = table.ManyToOneRelationships;
     DRB.Metadata.CurrentManyToMany = table.ManyToManyRelationships;
     DRB.Metadata.CurrentAlternateKeys = table.AlternateKeys;
-    if (typeof window !== "undefined") {
-        if (typeof window.__drbNotifyCapturedFieldsReady === "function") {
-            try { window.__drbNotifyCapturedFieldsReady(); } catch { }
-        }
-        if (typeof window.__drbNotifyCapturedSelectsReady === "function") {
-            try { window.__drbNotifyCapturedSelectsReady(); } catch { }
-        }
-        if (typeof window.__drbNotifyCapturedFetchXmlReady === "function") {
-            try { window.__drbNotifyCapturedFetchXmlReady(); } catch { }
-        }
-    }
 }
 
 /**
@@ -5726,8 +5520,9 @@ DRB.Logic.RemoveImage = function (domObject, metadataPath, elementIndex) {
         }
     });
 }
-// #endregion  
- 
+// #endregion
+
+
 // #region DRB.Logic.Bindings
 /**
  * Logic - Bind Property Boolean Value
@@ -6232,8 +6027,8 @@ DRB.Logic.ClickSelectRelationshipColumns = function (relationshipType) {
     DRB.Logic.BindSelectRelationship(selectDOM.Relationship.Dropdown.Id, relationshipMetadata, selectDOM.Columns.Dropdown, DRB.DOM.Relationship[relationshipType].Dropdown);
     DRB.Logic.BindSelectRelationshipColumns(selectDOM.Columns.Dropdown.Id, relationshipType, relationshipMetadata);
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.GenerateCode
 /**
  * Generate Code - Set Code Editors
@@ -6275,9 +6070,9 @@ DRB.GenerateCode.GetCapturedQueryOverride = function (settings, propertyName) {
     if (sanitizedValue === "") { return ""; }
     sanitizedValue = sanitizedValue.replace(/^\?/, "");
     var pattern = new RegExp('^\\$?' + propertyName + '=', 'i');
-    sanitizedValue = sanitizedValue.replace(pattern, '');
-    return sanitizedValue.trim();
-};
+    sanitizedValue = sanitizedValue.replace(pattern, "");
+    return sanitizedValue;
+}
 
 /**
  * Generate Code - Get Url Fields
@@ -6292,7 +6087,7 @@ DRB.GenerateCode.GetUrlFields = function (settings) {
 
     // check relationships
     var hasRelationshipExpansions = settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0;
-    if (hasRelationshipExpansions === true) {
+    if (hasRelationshipExpansions) {
         if (urlFields !== '') { urlFields += '&'; }
         urlFields += '$expand=';
     }
@@ -6717,6 +6512,7 @@ DRB.GenerateCode.GetFilterFields = function (settings) {
     // parse filterCriteria
     var filterFields = DRB.GenerateCode.ParseFilterCriteria("", settings.filterCriteria);
     if (filterFields !== "") {
+        // add $filter= clause
         return '$filter=' + filterFields;
     }
 
@@ -6747,8 +6543,14 @@ DRB.GenerateCode.GetOrderFields = function (settings) {
     if (orderFields !== '') {
         orderFields = '$orderby=' + orderFields;
         if (orderFields.slice(-1) === ',') { orderFields = orderFields.slice(0, -1); }
+        return orderFields;
     }
-    return orderFields;
+
+    var overrideOrder = DRB.GenerateCode.GetCapturedQueryOverride(settings, "orderby");
+    if (DRB.Utilities.HasValue(overrideOrder)) {
+        return '$orderby=' + overrideOrder;
+    }
+    return '';
 }
 
 /**
@@ -11437,9 +11239,9 @@ DRB.GenerateCode.PowerAutomate = function (requestType) {
     if (settings.fields.length > 0) { selectColumns = fieldLogicalNames.join(); }
 
     var expandQuery = "";
-    var hasRelationshipExpands = settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0;
     // #region Expand Query
-    if (hasRelationshipExpands === true) {
+    var hasRelationshipExpansions = settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0;
+    if (hasRelationshipExpansions) {
         settings.oneToMany.forEach(function (oneToMany) {
             var relFieldLogicalNames = oneToMany.fields.map(function (field) { return field.oDataName; });
             expandQuery += oneToMany.schemaName + '($select=' + relFieldLogicalNames.join() + '),';
@@ -12181,8 +11983,9 @@ DRB.GenerateCode.Start = function () {
             break;
     }
 }
-// #endregion  
- 
+// #endregion
+
+
 // #region DRB.GeneratePostman
 /**
  * Generate Postman - Return Values
@@ -12778,8 +12581,8 @@ DRB.GeneratePostman.Start = function (requestType, settings) {
             break;
     }
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.CustomUI
 /**
  * Add Spacer
@@ -12792,29 +12595,49 @@ DRB.CustomUI.AddSpacer = function () {
  * Add Version
  */
 DRB.CustomUI.AddVersion = function () {
+    var container = DRB.UI.CreateEmptyDiv();
+    container.append(DRB.UI.CreateSpan(DRB.DOM.Version.Span.Id, DRB.DOM.Version.Span.Name));
+    container.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.Version.Dropdown.Id));
+    $("#" + DRB.DOM.ConfigureContent.Id).append(container);
+    DRB.UI.FillDropdown(DRB.DOM.Version.Dropdown.Id, DRB.DOM.Version.Dropdown.Name, new DRB.Models.Records(DRB.Settings.Versions).ToDropdown());
+    DRB.Logic.BindPropertyValue(DRB.DOM.Version.Dropdown.Id, "version");
     var selectedVersion = DRB.Settings.Versions[DRB.Settings.Versions.length - 1].Id;
     var versionExists = DRB.Utilities.GetRecordById(DRB.Settings.Versions, DRB.Metadata.CurrentNode.data.configuration.version);
-    if (DRB.Utilities.HasValue(versionExists)) {
-        DRB.Metadata.CurrentNode.data.configuration.version = versionExists.Id;
-        return;
-    }
-    DRB.Metadata.CurrentNode.data.configuration.version = selectedVersion;
+    if (DRB.Utilities.HasValue(versionExists)) { selectedVersion = versionExists.Id; }
+    $("#" + DRB.DOM.Version.Dropdown.Id).val(selectedVersion).change();
+    container.hide();
 }
 
 /**
  * Add Process
  */
 DRB.CustomUI.AddProcess = function () {
-    if (typeof DRB.Metadata.CurrentNode.data.configuration.async === "boolean") { return; }
-    DRB.Metadata.CurrentNode.data.configuration.async = false;
+    var container = DRB.UI.CreateEmptyDiv();
+    container.append(DRB.UI.CreateSpan(DRB.DOM.Process.Span.Id, DRB.DOM.Process.Span.Name));
+    container.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.Process.Dropdown.Id));
+    $("#" + DRB.DOM.ConfigureContent.Id).append(container);
+    DRB.UI.FillDropdown(DRB.DOM.Process.Dropdown.Id, DRB.DOM.Process.Dropdown.Name, new DRB.Models.Records(DRB.Settings.OptionsAyncSync).ToDropdown());
+    DRB.Logic.BindPropertyBooleanValue(DRB.DOM.Process.Dropdown.Id, "async");
+    var processValue = "yes";
+    if (DRB.Metadata.CurrentNode.data.configuration.async === false) { processValue = "no"; }
+    $("#" + DRB.DOM.Process.Dropdown.Id).val(processValue).change();
+    container.hide();
 }
 
 /**
  * Add Token Header
  */
 DRB.CustomUI.AddTokenHeader = function () {
-    if (typeof DRB.Metadata.CurrentNode.data.configuration.tokenHeader === "boolean") { return; }
-    DRB.Metadata.CurrentNode.data.configuration.tokenHeader = false;
+    var container = DRB.UI.CreateEmptyDiv();
+    container.append(DRB.UI.CreateSpan(DRB.DOM.TokenHeader.Span.Id, DRB.DOM.TokenHeader.Span.Name));
+    container.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.TokenHeader.Dropdown.Id));
+    $("#" + DRB.DOM.ConfigureContent.Id).append(container);
+    DRB.UI.FillDropdown(DRB.DOM.TokenHeader.Dropdown.Id, DRB.DOM.TokenHeader.Dropdown.Name, new DRB.Models.Records(DRB.Settings.OptionsYesNo).ToDropdown());
+    DRB.Logic.BindPropertyBooleanValue(DRB.DOM.TokenHeader.Dropdown.Id, "tokenHeader");
+    var tokenHeaderValue = "no";
+    if (DRB.Metadata.CurrentNode.data.configuration.tokenHeader === true) { tokenHeaderValue = "yes"; }
+    $("#" + DRB.DOM.TokenHeader.Dropdown.Id).val(tokenHeaderValue).change();
+    container.hide();
 }
 
 /**
@@ -12966,10 +12789,7 @@ DRB.CustomUI.AddPrimaryId = function (hide, container) {
     DRB.Logic.BindPropertyValue(DRB.DOM.PrimaryId.Input.Id, "primaryId");
     DRB.Common.BindGuid(DRB.DOM.PrimaryId.Input.Id);
     if (DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data.configuration.primaryId)) {
-        $("#" + DRB.DOM.PrimaryId.Input.Id)
-            .val(DRB.Metadata.CurrentNode.data.configuration.primaryId)
-            .trigger("input")
-            .trigger("change");
+        $("#" + DRB.DOM.PrimaryId.Input.Id).val(DRB.Metadata.CurrentNode.data.configuration.primaryId).trigger("input");
     }
     if (hide === true) { divPrimaryId.hide(); }
 }
@@ -13052,8 +12872,9 @@ DRB.CustomUI.AddTypeColumns = function (container, columnType, domObject, metada
     // hide by default
     $("#" + DRB.DOM[domObject].MainDiv.Id + metadataPath).hide();
 }
-// #endregion  
- 
+// #endregion
+
+
 // #region DRB.Logic.RetrieveSingle
 /**
  * Retrieve Single - After Table Loaded
@@ -13173,8 +12994,8 @@ DRB.Logic.RetrieveSingle.Start = function () {
     } else { DRB.UI.LockDropdown(DRB.DOM.UseAlternateKey.Dropdown.Id); }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Column
 // Columns Functions, used by Set Columns (Create, Update) Order Columns (Retrieve Multiple), Filter Columns (Retrieve Multiple)
 
@@ -13569,8 +13390,8 @@ DRB.Logic.AddColumn = function (columnType, domObject, metadataPath, fromRelatio
     // refresh arrows
     DRB.Logic.RefreshArrows(metadataPath);
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Filter
 // Filter Columns Functions (used in Retrieve Multiple)
 /**
@@ -14219,8 +14040,8 @@ DRB.Logic.BindFilterLookupRelationship = function (id, columnType, domObject, me
         DRB.Logic.RefreshColumns(columnType, domObject, metadataPath);
     });
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Order
 // Order Columns Functions (used in Retrieve Multiple)
 
@@ -14339,8 +14160,8 @@ DRB.Logic.BindOrderColumn = function (id, columnType, domObject, metadataPath) {
         DRB.Logic.RefreshColumns(columnType, domObject, metadataPath);
     });
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.RetrieveMultiple
 /**
  * Retrieve Multiple - Refresh Dropdown Logic
@@ -14579,7 +14400,6 @@ DRB.Logic.RetrieveMultiple.RemoveFilterGroup = function (domObject, metadataPath
 DRB.Logic.RetrieveMultiple.StartAddFilter = function (domObjectGroups, domObjectColumns, metadataPath) {
     DRB.Logic.RetrieveMultiple.AddManuallyFilterGroups(domObjectGroups, metadataPath);
     DRB.Logic.RetrieveMultiple.AddManuallyFilterColumns(domObjectColumns, metadataPath + "_filterGroups_0");
-    $("#" + DRB.DOM.FilterBy.CapturedFilterDiv.Id).remove();
 }
 
 /**
@@ -15007,7 +14827,6 @@ DRB.Logic.RetrieveMultiple.RenderCapturedFilterNotice = function () {
     var overrides = configuration.capturedQueryOverrides || {};
     if (!DRB.Utilities.HasValue(overrides.filter)) { return; }
 
-    // do not display notice if the builder filter has already been configured
     if (DRB.Utilities.HasValue(configuration.filterCriteria) && configuration.filterCriteria.filterType === "fields") { return; }
     if (DRB.Utilities.HasValue(configuration.filterCriteria) && configuration.filterCriteria.filterType === "groups") { return; }
 
@@ -15196,7 +15015,7 @@ DRB.Logic.RetrieveMultiple.ParseCapturedFilterCondition = function (segment) {
 };
 
 DRB.Logic.RetrieveMultiple.ParseCapturedMicrosoftFunction = function (segment) {
-    var match = segment.match(/^Microsoft\.Dynamics\.CRM\.([^\(]+)\((.*)\)$/i);
+    var match = segment.match(/^Microsoft\\.Dynamics\\.CRM\\.([^\\(]+)\\((.*)\\)$/i);
     if (!match) { return null; }
     var operator = match[1].trim();
     var argsText = match[2];
@@ -15324,7 +15143,7 @@ DRB.Logic.RetrieveMultiple.SplitCapturedSimpleArguments = function (argsText) {
 };
 
 DRB.Logic.RetrieveMultiple.ParseCapturedSimpleFunction = function (segment) {
-    var match = segment.match(/^([^\(]+)\((.*)\)$/);
+    var match = segment.match(/^([^\\(]+)\\((.*)\\)$/);
     if (!match) { return null; }
     var operator = match[1].trim();
     var argsText = match[2];
@@ -15736,8 +15555,9 @@ DRB.Logic.RetrieveMultiple.Start = function () {
     }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
+
 // #region DRB.Logic.SetColumns
 // Set Functions (used in Create, Update)
 
@@ -16194,8 +16014,8 @@ DRB.Logic.BindSetTable = function (id, columnType, domObject, metadataPath) {
         }
     });
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Create
 /**
  * Create - Start 
@@ -16270,8 +16090,8 @@ DRB.Logic.Create.Start = function () {
     $("#" + DRB.DOM.ReturnRecord.Dropdown.Id).val(returnRecordValue).change();
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Update
 /**
  * Update - Start
@@ -16353,8 +16173,8 @@ DRB.Logic.Update.Start = function () {
     $("#" + DRB.DOM.ReturnRecord.Dropdown.Id).val(returnRecordValue).change();
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Delete
 /**
  * Delete - After Table Loaded
@@ -16439,8 +16259,8 @@ DRB.Logic.Delete.Start = function () {
     } else { DRB.UI.LockDropdown(DRB.DOM.UseAlternateKey.Dropdown.Id); }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Association
 /**
  * Association - Remove Child Id
@@ -16718,8 +16538,8 @@ DRB.Logic.Association.Start = function () {
     }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.RetrieveNextLink
 /**
  * Retrieve NextLink - Bind NextLink
@@ -16771,8 +16591,8 @@ DRB.Logic.RetrieveNextLink.Start = function () {
 
     DRB.CustomUI.AddSpacer();
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.PredefinedQuery
 /**
  * Predefined Query - After Table Loaded
@@ -16786,7 +16606,8 @@ DRB.Logic.PredefinedQuery.AfterTableLoaded = function (table) {
     $("#" + DRB.DOM.QueryType.Dropdown.Id).val(DRB.Metadata.CurrentNode.data.configuration.queryType).change();
     $("#" + DRB.DOM.PersonalViewId.Dropdown.Id).val(DRB.Metadata.CurrentNode.data.configuration.personalViewId);
     DRB.UI.RefreshDropdown(DRB.DOM.PersonalViewId.Dropdown.Id);
-    DRB.Metadata.XMLEditor.session.setValue(DRB.Metadata.CurrentNode.data.configuration.fetchXML);
+    var fetchXML = DRB.Metadata.CurrentNode.data.configuration.fetchXML;
+    DRB.Metadata.XMLEditor.session.setValue(DRB.Utilities.FormatXml(fetchXML));
 }
 
 /**
@@ -16813,7 +16634,6 @@ DRB.Logic.PredefinedQuery.BindTable = function (id) {
                             });
                             // set the personal views loaded as true for all the tables
                             DRB.Metadata.Tables.forEach(function (setTable) { setTable.PersonalViewsLoaded = true; });
-                            if (DRB.MetadataCache && typeof DRB.MetadataCache.requestSave === "function") { DRB.MetadataCache.requestSave(); }
                             DRB.Logic.PredefinedQuery.AfterTableLoaded(table);
                             DRB.UI.HideLoading();
                         })
@@ -16990,8 +16810,9 @@ DRB.Logic.PredefinedQuery.Start = function () {
     } else { DRB.UI.LockDropdown(DRB.DOM.QueryType.Dropdown.Id); }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
+
 // #region DRB.Logic.DataverseExecute
 /**
  * Dataverse Execute - Download Dataverse Custom APIs
@@ -17785,14 +17606,6 @@ DRB.Logic.DataverseExecute.AfterExecuteLoaded = function (dvExecute) {
             }
         } else { matchParameters = false; }
 
-        if (matchParameters === false) {
-            var capturedDefaults = window.__drbBuildCapturedDataverseParameters(dvExecute);
-            if (Array.isArray(capturedDefaults) && capturedDefaults.length === dvExecute.Parameters.length) {
-                parameters = capturedDefaults;
-                matchParameters = true;
-            }
-        }
-
         // parse the parameters
         for (var index = 0; index < dvExecute.Parameters.length; index++) {
             var parameter = dvExecute.Parameters[index];
@@ -18270,16 +18083,9 @@ DRB.Logic.DataverseExecute.Start = function (requestType) {
         }
     }
     // #endregion
-
-    if (typeof window !== "undefined" && typeof window.__drbOnDataverseMetadataReady === "function") {
-        setTimeout(function () {
-            try { window.__drbOnDataverseMetadataReady(requestType); }
-            catch (notifyError) { console.error(notifyError); }
-        }, 0);
-    }
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.ExecuteWorkflow
 /**
  * Execute Workflow - Bind Table
@@ -18346,8 +18152,8 @@ DRB.Logic.ExecuteWorkflow.Start = function () {
     }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.ManageFileImageData
 /**
  * Manage File Image Data - After Table Loaded
@@ -18772,9 +18578,9 @@ DRB.Logic.ManageFileImageData.Start = function (requestType) {
     }
     // #endregion
 }
-// #endregion  
- 
-﻿// #region DRB.Collection
+// #endregion
+
+// #region DRB.Collection
 /**
  * Collection - Load Nodes
  * @param {any} nodes Nodes
@@ -18851,32 +18657,72 @@ DRB.Collection.Parse = function (e) {
         var reader = new FileReader();
         // define onload event after the file is read
         reader.onload = function (e) {
-            try {
-                // get file content
-                var fileContent = e.target.result;
-                // parse file content as json
-                var parsedContent = JSON.parse(fileContent);
-                // version check
-                if (parsedContent.version > 1) {
-                    DRB.UI.ShowError("Load Collection Error", "This file has been created for a newer version of Dataverse REST Builder");
-                } else {
-                    // create an empty data structure
-                    var currentNodes = [{}];
-                    // import jsTree nodes to the new data structure
-                    DRB.Collection.ImportNodes(parsedContent, currentNodes[0]);
-                    // load nodes
-                    DRB.Collection.LoadNodes(currentNodes);
-                }
-            } catch (e) {
-                // something went wrong when parsing the file, show error
-                DRB.UI.ShowError("Load Collection Error", "Failed to parse the selected file. Make sure the file is a collection for Dataverse REST Builder");
-            }
+            DRB.Collection.ParseText(e.target.result);
         };
         // read the file as text
         reader.readAsText(file);
     }
     // reset the File Input (necessary if load again the same file name)
     $(e.target).val("");
+}
+
+/**
+ * Collection - Parse Text
+ * @param {string} fileContent File Content
+ */
+DRB.Collection.ParseText = function (fileContent) {
+    try {
+        // parse file content as json
+        var parsedContent = JSON.parse(fileContent);
+        // version check
+        if (parsedContent.version > 1) {
+            DRB.UI.ShowError("Load Collection Error", "This file has been created for a newer version of Dataverse REST Builder");
+        } else {
+            // create an empty data structure
+            var currentNodes = [{}];
+            // import jsTree nodes to the new data structure
+            DRB.Collection.ImportNodes(parsedContent, currentNodes[0]);
+            // load nodes
+            DRB.Collection.LoadNodes(currentNodes);
+        }
+    } catch (e) {
+        // something went wrong when parsing the file, show error
+        DRB.UI.ShowError("Load Collection Error", "Failed to parse the selected file. Make sure the file is a collection for Dataverse REST Builder");
+    }
+}
+
+/**
+* Collection - Load From Text
+* @param {string} fileContent File Content
+*/
+DRB.Collection.LoadFromText = function (fileContent) {
+    DRB.Collection.ParseText(fileContent);
+}
+
+/**
+ * Collection - Get Save Payload
+ */
+DRB.Collection.GetSavePayload = function () {
+    // get jsTree data structure
+    var currentNodes = $("#" + DRB.DOM.TreeView.Id).jstree(true).get_json("#");
+    // if no nodes then show error
+    if (currentNodes.length === 0) {
+        DRB.UI.ShowError("Save Collection", "Create or Load a Collection before Save");
+        return null;
+    }
+
+    // get current DateTime
+    var now = new Date();
+    // create json collection
+    var collection = {};
+    collection.created_on = now.toJSON(); // current DateTime as json 
+    collection.version = 1; // collection version
+    // export jsTree nodes to the json collection
+    DRB.Collection.ExportNodes(currentNodes[0], collection);
+    // create fileName and fileDate (coming from current DateTime) to be used inside a valid filename
+    var fileName = currentNodes[0].text.replace(/[^a-z0-9]/gi, "_");
+    var fileDate = now.toLocaleString("sv").replace(/ /g, "_").replace(/-/g, "").replace(/:/g, "");
+    return { fileName: fileName + "_" + fileDate + ".json", content: JSON.stringify(collection, null, "\t") };
 }
 
 /**
@@ -18937,8 +18783,8 @@ DRB.Collection.Save = function () {
 }
 
 // #endregion
-  
- 
+
+
 // #region DRB.Initialize
 /**
  * Set Default Settings
@@ -18952,7 +18798,9 @@ DRB.SetDefaultSettings = function () {
     { Id: "delete", Name: "Delete" },
     { Id: "predefinedquery", Name: "Predefined Query" },
     { Id: "executecustomapi", Name: "Execute Custom API" },
-    { Id: "executecustomaction", Name: "Execute Custom Action" }];
+    { Id: "executecustomaction", Name: "Execute Custom Action" },
+    { Id: "executeaction", Name: "Execute Action" },
+    { Id: "executefunction", Name: "Execute Function" }];
     DRB.Settings.RequestTypes = [];
     requests.forEach(function (request) { DRB.Settings.RequestTypes.push(new DRB.Models.IdValue(request.Id, request.Name)); });
     // #endregion
@@ -19119,15 +18967,8 @@ DRB.SetDefaultSettings = function () {
 DRB.DefineOperations = function () {
     // #region Menu
     var inp_LoadFile = DRB.UI.CreateInputFile(DRB.DOM.Collection.LoadInput.Id, true, DRB.Collection.Parse);
-    var btn_NewCollection = DRB.UI.CreateButton(DRB.DOM.Collection.NewButton.Id, DRB.DOM.Collection.NewButton.Name, DRB.DOM.Collection.NewButton.Class, DRB.Collection.New);
-    var btn_LoadCollection = DRB.UI.CreateButton(DRB.DOM.Collection.LoadButton.Id, DRB.DOM.Collection.LoadButton.Name, DRB.DOM.Collection.LoadButton.Class, DRB.Collection.Load);
-    var btn_SaveCollection = DRB.UI.CreateButton(DRB.DOM.Collection.SaveButton.Id, DRB.DOM.Collection.SaveButton.Name, DRB.DOM.Collection.SaveButton.Class, DRB.Collection.Save);
-
     var menu = $("#" + DRB.DOM.Collection.Menu.Id);
     menu.append(inp_LoadFile);
-    menu.append(btn_NewCollection);
-    menu.append(btn_LoadCollection);
-    menu.append(btn_SaveCollection);
     // #endregion
 
     // #region jsTree
@@ -19142,46 +18983,18 @@ DRB.DefineOperations = function () {
                         "action": function (data) {
                             var inst = $.jstree.reference(data.reference);
                             var obj = inst.get_node(data.reference);
-                            inst.create_node(obj, { "type": "request", "text": "New Request" }, "last", function (new_node) {
-                                try { inst.edit(new_node); } catch (ex) { setTimeout(function () { inst.edit(new_node); }, 0); }
-                            });
-                        }
-                    },
-                    "createfolder": {
-                        "label": "Create Folder",
-                        "action": function (data) {
-                            var inst = $.jstree.reference(data.reference);
-                            var obj = inst.get_node(data.reference);
-                            inst.create_node(obj, { "type": "folder", "text": "New Folder" }, "last", function (new_node) {
-                                try { inst.edit(new_node); } catch (ex) { setTimeout(function () { inst.edit(new_node); }, 0); }
-                            });
-                        }
-                    },
-                    "duplicaterequest": {
-                        "label": "Duplicate",
-                        "action": function (data) {
-                            var inst = $.jstree.reference(data.reference);
-                            var obj = inst.get_node(data.reference);
-                            var position = $.inArray(obj.id, inst.get_node(obj.parent).children);
-                            inst.create_node(obj.parent, { "type": "request", "data": obj.data, "text": obj.text + " - Copy" }, position + 1);
-                        }
-                    },
-                    "duplicatefolder": {
-                        "label": "Duplicate",
-                        "action": function (data) {
-                            var inst = $.jstree.reference(data.reference);
-                            var obj = inst.get_node(data.reference);
-                            var position = $.inArray(obj.id, inst.get_node(obj.parent).children);
-                            inst.create_node(obj.parent, { "type": "folder", "text": obj.text + " - Copy" }, position + 1, function (new_node) {
-                                function deep_duplicate(childNode, parentNode) {
-                                    if (childNode.children.length === 0) { return; }
-                                    for (var count = 0; count < childNode.children.length; count++) {
-                                        var objChild = inst.get_node(childNode.children[count]);
-                                        inst.create_node(parentNode, { "type": objChild.type, "data": objChild.data, "text": objChild.text });
-                                        deep_duplicate(inst.get_node(childNode.children[count]), inst.get_node(parentNode.children[count]));
-                                    }
+                            var parent = obj;
+                            while (parent && parent.type === "request") {
+                                parent = inst.get_node(parent.parent);
+                            }
+                            if (!parent || parent.id === "#") {
+                                var roots = inst.get_node("#").children;
+                                if (roots.length > 0) {
+                                    parent = inst.get_node(roots[0]);
                                 }
-                                deep_duplicate(obj, new_node);
+                            }
+                            inst.create_node(parent, { "type": "request", "text": "New Request" }, "last", function (new_node) {
+                                try { inst.edit(new_node); } catch (ex) { setTimeout(function () { inst.edit(new_node); }, 0); }
                             });
                         }
                     },
@@ -19190,63 +19003,19 @@ DRB.DefineOperations = function () {
                         "action": function (data) {
                             var inst = $.jstree.reference(data.reference);
                             var obj = inst.get_node(data.reference);
-                            inst.edit(obj);
+                            try { inst.edit(obj); } catch (ex) { setTimeout(function () { inst.edit(obj); }, 0); }
                         }
                     },
-                    "remove": {
+                    "delete": {
                         "label": "Delete",
                         "action": function (data) {
-                            var questionTitle = "";
-                            var questionText = "";
-                            switch (node.type) {
-                                case "collection":
-                                    questionTitle = "Delete Collection";
-                                    questionText = "Are you sure to delete the collection?<br/><u>All the folders and requests will be deleted</u>";
-                                    break;
-                                case "folder":
-                                    questionTitle = "Delete Folder";
-                                    questionText = "Are you sure to delete the folder <b>" + node.text + "</b>?<br/><u>All the folders and requests inside this folder will be deleted</u>";
-                                    break;
-                                case "request":
-                                    questionTitle = "Delete Request";
-                                    questionText = "Are you sure to delete the request <b>" + node.text + "</b>?";
-                                    break;
-                            }
-                            DRB.UI.ShowQuestion(questionTitle, questionText, null,
-                                function () {
-                                    var inst = $.jstree.reference(data.reference);
-                                    var obj = inst.get_node(data.reference);
-                                    if (inst.is_selected(obj)) { inst.delete_node(inst.get_selected()); } else { inst.delete_node(obj); }
-                                    if (node.type === "collection" && DRB.Settings.LocalStorageAvailable === true) {
-                                        localStorage.removeItem("DRB_" + DRB.Xrm.GetClientUrl());
-                                    }
-                                });
-                        }
-                    },
-                    "savestate": {
-                        "separator_before": true,
-                        "label": "Save State",
-                        "action": function (data) {
                             var inst = $.jstree.reference(data.reference);
-                            var currentNodes = inst.get_json("#");
-                            var now = new Date(); // get current DateTime
-                            var collection = {}; // create json collection
-                            collection.created_on = now.toJSON(); // current DateTime as json 
-                            collection.version = 1; // collection version                            
-                            DRB.Collection.ExportNodes(currentNodes[0], collection); // export jsTree nodes to the json collection
-                            localStorage.setItem("DRB_" + DRB.Xrm.GetClientUrl(), JSON.stringify(collection));
+                            var obj = inst.get_node(data.reference);
+                            inst.delete_node(obj);
                         }
                     }
                 };
-                // delete entries based on the node type
-                if (node.type === "collection") {
-                    delete customItems.duplicaterequest; delete customItems.duplicatefolder;
-                    if (DRB.Settings.LocalStorageAvailable !== true) {
-                        delete customItems.savestate;
-                    }
-                }
-                if (node.type === "folder") { delete customItems.duplicaterequest; delete customItems.savestate; }
-                if (node.type === "request") { delete customItems.createfolder; delete customItems.duplicatefolder; delete customItems.createrequest; delete customItems.savestate; }
+                if (node.type !== "request") { delete customItems["delete"]; }
                 return customItems;
             }
         },
@@ -19256,7 +19025,11 @@ DRB.DefineOperations = function () {
             "folder": { "valid_children": ["folder", "request"] }, // "folder" can have only "folder" and "request" nodes, default icon
             "request": { "icon": "jstree-file", "valid_children": [] } // "request" can't have nodes, file icon
         },
-        "plugins": ["dnd", "types", "contextmenu"] // drag and drop, node types, right click menu
+        "plugins": ["types", "contextmenu"] // node types, right click menu
+    });
+
+    $("#" + DRB.DOM.TreeView.Id).on("ready.jstree refresh.jstree", function (e, data) {
+        data.instance.open_all();
     });
 
     $("#" + DRB.DOM.TreeView.Id).on("select_node.jstree", function (e, data) {
@@ -19285,20 +19058,32 @@ DRB.DefineOperations = function () {
     // #region Request Type
     var container = DRB.UI.CreateWideContainerWithId(DRB.DOM.RequestType.Div.Id, DRB.DOM.RequestType.Div.Name);
     $("#" + DRB.DOM.MainContent.Id).append(container);
-    container.append(DRB.UI.CreateSpan(DRB.DOM.RequestType.Span.Id, DRB.DOM.RequestType.Span.Name));
-    container.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.RequestType.Dropdown.Id));
-    var btn_executeRequest = DRB.UI.CreateButton(DRB.DOM.RequestType.ExecuteButton.Id, DRB.DOM.RequestType.ExecuteButton.Name, DRB.DOM.RequestType.ExecuteButton.Class, DRB.Logic.ExecuteConfiguredRequest);
-    container.append(btn_executeRequest);
+    var requestControls = $("<div>", { class: "drb-request-controls" });
+    requestControls.append(DRB.UI.CreateSpan(DRB.DOM.RequestType.Span.Id, DRB.DOM.RequestType.Span.Name));
+    requestControls.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.RequestType.Dropdown.Id));
+    var btn_executeRequest = DRB.UI.CreateButton("btn_execute_request", "&#x25B6; Execute", "btn-danger", function () {
+        DRB.GenerateCode.Start();
+        try {
+            var fetchEditor = DRB.Settings.Editors["code_fetchapi"];
+            var executeEditor = DRB.Settings.Editors[DRB.Settings.TabExecute];
+            if (DRB.Utilities.HasValue(fetchEditor) && DRB.Utilities.HasValue(executeEditor)) {
+                executeEditor.session.setValue(fetchEditor.session.getValue());
+            }
+        } catch { }
+        DRB.Logic.ExecuteCodeFromEditor();
+    });
+    requestControls.append(btn_executeRequest);
+    container.append(requestControls);
     container.append(DRB.UI.CreateSpacer());
-    DRB.UI.FillDropdown(DRB.DOM.RequestType.Dropdown.Id, DRB.DOM.RequestType.Dropdown.Name, new DRB.Models.Records(DRB.Settings.RequestTypes).ToDropdown(), false, false, false, 16);
+    DRB.UI.FillDropdown(DRB.DOM.RequestType.Dropdown.Id, DRB.DOM.RequestType.Dropdown.Name, new DRB.Models.Records(DRB.Settings.RequestTypes).ToDropdown(), false, false, false, 8);
     DRB.Logic.BindRequestType(DRB.DOM.RequestType.Dropdown.Id);
     // #endregion
 
     // #region Tabs
     DRB.Settings.Tabs = [];
     DRB.Settings.Tabs.push({ Id: "configure", Name: "Configure", ConfigureContent: true });
-    DRB.Settings.Tabs.push({ Id: "code_fetchapi", Name: "Fetch", GenerateCode: true, ShowEditor: true, EditorMode: "javascript", CopyCode: true, MoveToEditor: true, ShowWarning: true, WarningClientUrl: true, Hidden: true });
-    DRB.Settings.Tabs.push({ Id: "code_editor", Name: "Editor", ShowEditor: true, EditorMode: "javascript", CopyCode: true, Execute: true, ShowWarning: true, WarningEditor: true, Hidden: true });
+    DRB.Settings.Tabs.push({ Id: "code_fetchapi", Name: "Fetch", GenerateCode: true, ShowEditor: true, EditorMode: "javascript", CopyCode: true, MoveToEditor: true, ShowWarning: true, WarningClientUrl: true });
+    DRB.Settings.Tabs.push({ Id: "code_editor", Name: "Editor", ShowEditor: true, EditorMode: "javascript", CopyCode: true, Execute: true, ShowWarning: true, WarningEditor: true });
     DRB.Settings.Tabs.push({ Id: "code_results", Name: "Results", ShowEditor: true, EditorMode: "json", CopyCode: true, Results: true, ShowWarning: true, WarningResults: true });
 
     var tabs_Request = DRB.UI.CreateTabs(DRB.DOM.TabsRequest.Id, DRB.Settings.Tabs);
@@ -19352,27 +19137,16 @@ DRB.DefineOperations = function () {
             $("#" + tab.Id).append(DRB.UI.CreateEmptyDiv(tab.Id + "_div"));
         }
     });
-    // hide tabs flagged as hidden
-    DRB.Settings.Tabs.forEach(function (tab) {
-        if (tab.Hidden === true) {
-            $("#a_" + tab.Id).hide();
-            $("#" + tab.Id).hide();
-        }
-    });
     // #endregion
 
     // #region Editors
     DRB.Settings.Editors = [];
     DRB.Settings.TabExecute = "";
     DRB.Settings.TabResults = "";
-    DRB.Settings.ExecutionSourceTab = "";
 
     DRB.Settings.Tabs.forEach(function (tab) {
         if (DRB.Utilities.HasValue(tab.Execute) && tab.Execute === true) { DRB.Settings.TabExecute = tab.Id; }
         if (DRB.Utilities.HasValue(tab.Results) && tab.Results === true) { DRB.Settings.TabResults = tab.Id; }
-        if (DRB.Utilities.HasValue(tab.MoveToEditor) && tab.MoveToEditor === true && !DRB.Utilities.HasValue(DRB.Settings.ExecutionSourceTab)) {
-            DRB.Settings.ExecutionSourceTab = tab.Id;
-        }
 
         if (DRB.Utilities.HasValue(tab.ShowEditor) && tab.ShowEditor === true) {
             DRB.Settings.Editors[tab.Id] = ace.edit(tab.Id + "_editor", { useWorker: false });
@@ -19386,24 +19160,71 @@ DRB.DefineOperations = function () {
     // #endregion
 }
 
-DRB.InsertMainBodyContent = function () {
-        $("#" + DRB.DOM.MainBody.Id).html(`<div class="mainlayout col-lg-12">
-            <div class="maincontent split">
-                <div id="` + DRB.DOM.Split.Menu.Id + `" style="margin-top: 10px; margin-right: 24px;">
-                    <div class="dropdown">
-                        <button class="btn btn-primary dropdown-toggle" type="button" id="btn_file" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">File</button>
-                        <div class="dropdown-menu" aria-labelledby="btn_file" id="` + DRB.DOM.Collection.Menu.Id + `"></div>
-                    </div>
-                    <br />
-                    <div id="` + DRB.DOM.TreeView.Id + `"></div>
-                </div>
-                <div id="` + DRB.DOM.Split.Content.Id + `" style="margin-left: 10px; margin-top: 10px;">
-                    <div id="` + DRB.DOM.MainContent.Id + `" style="display: none;"></div>
-                </div>
-            </div>
-        </div>`);
+DRB.Theme = DRB.Theme || (function () {
+    var current = "dark";
+    var listeners = [];
+    var domListenerAttached = false;
+
+    function updateDom() {
+        if (document.readyState === "loading") {
+            if (domListenerAttached === true) { return; }
+            domListenerAttached = true;
+            var onReady = function () {
+                domListenerAttached = false;
+                document.removeEventListener("DOMContentLoaded", onReady);
+                updateDom();
+            };
+            document.addEventListener("DOMContentLoaded", onReady);
+            return;
+        }
+
+        var body = document.body;
+        if (!body) { return; }
+
+        body.dataset.drbTheme = current;
+        body.classList.remove("drb-theme-dark", "drb-theme-light");
+        body.classList.add("drb-theme-" + current);
+        if (document.documentElement) {
+            document.documentElement.style.setProperty("color-scheme", current);
+        }
+    }
+
+    function applyTheme(theme) {
+        var normalized = theme === "light" ? "light" : "dark";
+        if (current === normalized && document.body && document.body.dataset.drbTheme === normalized) { return; }
+        current = normalized;
+        updateDom();
+        listeners.forEach(function (callback) {
+            try {
+                callback(normalized);
+            } catch (e) { }
+        });
+    }
+
+    function onChange(callback) {
+        if (typeof callback === "function") {
+            listeners.push(callback);
+        }
+    }
+
+    updateDom();
+
+    return {
+        apply: applyTheme,
+        onChange: onChange,
+        current: function () { return current; }
+    };
+}());
+
+if (typeof window !== "undefined" && typeof window.__drbApplyTheme !== "function") {
+    window.__drbApplyTheme = function (theme) {
+        if (window.DRB && DRB.Theme) {
+            DRB.Theme.apply(theme);
+        }
+    };
 }
 
+// Capture injection entrypoint for WebView host
 if (typeof window !== "undefined") {
     var __drbPendingCapturedRequests = [];
 
@@ -19912,6 +19733,10 @@ if (typeof window !== "undefined") {
         if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || DRB.Metadata.CurrentNode.id !== nodeId) { return; }
 
         if (payload.__drbMessageShown !== true) { payload.__drbMessageShown = false; }
+        var showCapturedMessage = function () {
+            DRB.UI.ShowMessage("Captured request added to REST Builder.");
+            setTimeout(function () { DRB.UI.HideLoading(); }, 1200);
+        };
 
         var resolvedRequestType = window.__drbResolveCapturedRequestType(payload);
         var isDataverseRequest = window.__drbIsDataverseRequestType(resolvedRequestType);
@@ -19928,7 +19753,7 @@ if (typeof window !== "undefined") {
             payload.__drbMetadataDeferred = true;
             window.__drbDeferCapturedDataverseRequest(resolvedRequestType, nodeId, payload);
             if (payload.__drbMessageShown !== true) {
-                DRB.UI.ShowMessage("Captured request added to REST Builder.");
+                showCapturedMessage();
                 payload.__drbMessageShown = true;
             }
             return;
@@ -19937,10 +19762,22 @@ if (typeof window !== "undefined") {
         var applyEntity = function () {
             if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || DRB.Metadata.CurrentNode.id !== nodeId) { return; }
 
-            if (DRB.Utilities.HasValue(payload.primaryEntityLogicalName)) {
-                var tableDropdown = $("#" + DRB.DOM.Table.Dropdown.Id);
-                if (tableDropdown.length > 0) {
-                    tableDropdown.val(payload.primaryEntityLogicalName).change();
+            var tableDropdown = $("#" + DRB.DOM.Table.Dropdown.Id);
+            if (tableDropdown.length > 0) {
+                var targetLogical = DRB.Utilities.HasValue(payload.primaryEntityLogicalName) ? payload.primaryEntityLogicalName : "";
+                if (DRB.Utilities.HasValue(targetLogical)) {
+                    tableDropdown.val(targetLogical);
+                    if (tableDropdown.val() !== targetLogical && DRB.Utilities.HasValue(payload.entitySetName)) {
+                        var fallbackTable = window.__drbFindTableByEntitySet(payload.entitySetName);
+                        if (DRB.Utilities.HasValue(fallbackTable)) { targetLogical = fallbackTable.LogicalName; }
+                        tableDropdown.val(targetLogical);
+                    }
+                    if (tableDropdown.val() === targetLogical) { tableDropdown.change(); }
+                } else if (DRB.Utilities.HasValue(payload.entitySetName)) {
+                    var table = window.__drbFindTableByEntitySet(payload.entitySetName);
+                    if (DRB.Utilities.HasValue(table)) {
+                        tableDropdown.val(table.LogicalName).change();
+                    }
                 }
             }
 
@@ -19969,13 +19806,18 @@ if (typeof window !== "undefined") {
             window.__drbScheduleCapturedSelectPopulation(nodeId, payload, 0);
         }
 
+        if (payload.requestType === "retrievemultiple") {
+            window.__drbScheduleCapturedExpandPopulation(nodeId, payload, 0);
+            window.__drbScheduleCapturedOrderByPopulation(nodeId, payload, 0);
+        }
+
         if (payload.requestType === "predefinedquery" && DRB.Utilities.HasValue(payload.fetchXml)) {
             window.__drbScheduleCapturedFetchXmlPopulation(nodeId, payload, 0);
         }
 
         window.__drbApplyCapturedQueryOverrides(nodeId, payload);
         if (payload.__drbMessageShown !== true) {
-            DRB.UI.ShowMessage("Captured request added to REST Builder.");
+            showCapturedMessage();
             payload.__drbMessageShown = true;
         }
     };
@@ -19999,6 +19841,12 @@ if (typeof window !== "undefined") {
             var expandValue = window.__drbFindQueryValue(payload, "$expand");
             if (DRB.Utilities.HasValue(expandValue)) {
                 overrides.expand = expandValue.trim();
+                overridesChanged = true;
+            }
+
+            var orderValue = window.__drbFindQueryValue(payload, "$orderby");
+            if (DRB.Utilities.HasValue(orderValue)) {
+                overrides.orderby = orderValue.trim();
                 overridesChanged = true;
             }
 
@@ -20511,6 +20359,449 @@ if (typeof window !== "undefined") {
         });
     };
 
+    window.__drbScheduleCapturedExpandPopulation = function (nodeId, payload, attempt, cachedEntries) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            var currentNode = DRB.Metadata.CurrentNode;
+            if (!DRB.Utilities.HasValue(currentNode) || currentNode.id !== nodeId) {
+                window.__drbClearPendingExpandInjection(nodeId);
+                return;
+            }
+            if (DRB.Utilities.HasValue(currentNode.data.__capturedExpandApplied)) {
+                window.__drbClearPendingExpandInjection(nodeId);
+                return;
+            }
+
+            var currentAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+            var expandEntries = Array.isArray(cachedEntries) ? cachedEntries : window.__drbExtractCapturedExpandEntries(payload);
+            if (!Array.isArray(expandEntries) || expandEntries.length === 0) {
+                window.__drbClearPendingExpandInjection(nodeId);
+                return;
+            }
+
+            if (!DRB.Utilities.HasValue(payload.__drbExpandPopulateStart)) {
+                payload.__drbExpandPopulateStart = Date.now();
+            }
+            var maxWait = 120000;
+
+            if (!window.__drbCanPopulateCapturedExpand()) {
+                window.__drbTrackPendingExpandInjection(nodeId, payload, currentAttempt, expandEntries);
+                var elapsed = Date.now() - payload.__drbExpandPopulateStart;
+                if (elapsed > maxWait) {
+                    window.__drbClearPendingExpandInjection(nodeId);
+                    return;
+                }
+                var backoff = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedExpandPopulation(nodeId, payload, currentAttempt + 1, expandEntries); }, backoff);
+                return;
+            }
+
+            var applied = window.__drbApplyCapturedExpand(expandEntries);
+            if (applied !== true) {
+                window.__drbTrackPendingExpandInjection(nodeId, payload, currentAttempt, expandEntries);
+                var attemptElapsed = Date.now() - payload.__drbExpandPopulateStart;
+                if (attemptElapsed > maxWait) {
+                    window.__drbClearPendingExpandInjection(nodeId);
+                    return;
+                }
+                var retryDelay = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedExpandPopulation(nodeId, payload, currentAttempt + 1, expandEntries); }, retryDelay);
+                return;
+            }
+
+            window.__drbClearPendingExpandInjection(nodeId);
+            delete payload.__drbExpandPopulateStart;
+            currentNode.data.__capturedExpandApplied = true;
+        } catch (expandError) {
+            console.error(expandError);
+        }
+    };
+
+    window.__drbCanPopulateCapturedExpand = function () {
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode)) { return false; }
+        if (!Array.isArray(DRB.Metadata.Tables) || DRB.Metadata.Tables.length === 0) { return false; }
+        var hasRelationships = Array.isArray(DRB.Metadata.CurrentOneToMany)
+            || Array.isArray(DRB.Metadata.CurrentManyToOne)
+            || Array.isArray(DRB.Metadata.CurrentManyToMany);
+        if (!hasRelationships) { return false; }
+        return true;
+    };
+
+    window.__drbExtractCapturedExpandEntries = function (payload) {
+        if (!DRB.Utilities.HasValue(payload)) { return []; }
+        var raw = window.__drbFindQueryValue(payload, "$expand");
+        if (!DRB.Utilities.HasValue(raw)) { return []; }
+        var entries = window.__drbSplitCapturedExpandEntries(raw);
+        if (!Array.isArray(entries) || entries.length === 0) { return []; }
+        var parsedEntries = [];
+        entries.forEach(function (entry) {
+            var parsed = window.__drbParseCapturedExpandEntry(entry);
+            if (DRB.Utilities.HasValue(parsed)) { parsedEntries.push(parsed); }
+        });
+        return parsedEntries;
+    };
+
+    window.__drbSplitCapturedExpandEntries = function (rawValue) {
+        var entries = [];
+        if (!DRB.Utilities.HasValue(rawValue)) { return entries; }
+        var buffer = '';
+        var depth = 0;
+        var inQuotes = false;
+        for (var i = 0; i < rawValue.length; i++) {
+            var char = rawValue[i];
+            if (char === "'") {
+                if (inQuotes === true && i + 1 < rawValue.length && rawValue[i + 1] === "'") {
+                    buffer += "''";
+                    i++;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                buffer += char;
+                continue;
+            }
+            if (inQuotes === false) {
+                if (char === '(') { depth++; buffer += char; continue; }
+                if (char === ')') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+                if (char === ',' && depth === 0) {
+                    if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+                    buffer = '';
+                    continue;
+                }
+            }
+            buffer += char;
+        }
+        if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+        return entries;
+    };
+
+    window.__drbParseCapturedExpandEntry = function (entry) {
+        if (!DRB.Utilities.HasValue(entry)) { return null; }
+        var trimmed = entry.trim();
+        if (trimmed.length === 0) { return null; }
+        var name = trimmed;
+        var optionsText = null;
+        var openIndex = trimmed.indexOf('(');
+        if (openIndex > -1 && trimmed.endsWith(')')) {
+            name = trimmed.substring(0, openIndex).trim();
+            optionsText = trimmed.substring(openIndex + 1, trimmed.length - 1);
+        }
+        if (name.length === 0) { return null; }
+        var selectColumns = [];
+        if (DRB.Utilities.HasValue(optionsText)) {
+            var selectValue = window.__drbFindExpandOptionValue(optionsText, "$select");
+            if (DRB.Utilities.HasValue(selectValue)) {
+                selectColumns = selectValue.split(',').map(function (value) { return window.__drbNormalizeSelectColumnName(value); })
+                    .filter(function (value) { return value.length > 0; });
+            }
+        }
+        return { name: name, selectColumns: selectColumns };
+    };
+
+    window.__drbFindExpandOptionValue = function (optionsText, key) {
+        if (!DRB.Utilities.HasValue(optionsText) || !DRB.Utilities.HasValue(key)) { return null; }
+        var segments = window.__drbSplitCapturedExpandOptions(optionsText);
+        var target = key.toLowerCase();
+        for (var i = 0; i < segments.length; i++) {
+            var segment = segments[i];
+            if (!DRB.Utilities.HasValue(segment)) { continue; }
+            var splitterIndex = segment.indexOf('=');
+            if (splitterIndex === -1) { continue; }
+            var optionKey = segment.substring(0, splitterIndex).trim().toLowerCase();
+            if (optionKey === target) {
+                return segment.substring(splitterIndex + 1).trim();
+            }
+        }
+        return null;
+    };
+
+    window.__drbSplitCapturedExpandOptions = function (optionsText) {
+        var entries = [];
+        if (!DRB.Utilities.HasValue(optionsText)) { return entries; }
+        var buffer = '';
+        var depth = 0;
+        var inQuotes = false;
+        for (var i = 0; i < optionsText.length; i++) {
+            var char = optionsText[i];
+            if (char === "'") {
+                if (inQuotes === true && i + 1 < optionsText.length && optionsText[i + 1] === "'") {
+                    buffer += "''";
+                    i++;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                buffer += char;
+                continue;
+            }
+            if (inQuotes === false) {
+                if (char === '(') { depth++; buffer += char; continue; }
+                if (char === ')') { depth = Math.max(0, depth - 1); buffer += char; continue; }
+                if (char === ';' && depth === 0) {
+                    if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+                    buffer = '';
+                    continue;
+                }
+            }
+            buffer += char;
+        }
+        if (buffer.trim().length > 0) { entries.push(buffer.trim()); }
+        return entries;
+    };
+
+    window.__drbFindRelationshipByExpandName = function (expandName) {
+        if (!DRB.Utilities.HasValue(expandName)) { return null; }
+        var comparer = expandName.toLowerCase();
+        var relationshipSets = [
+            { metadata: DRB.Metadata.CurrentOneToMany, configKey: "oneToMany" },
+            { metadata: DRB.Metadata.CurrentManyToOne, configKey: "manyToOne" },
+            { metadata: DRB.Metadata.CurrentManyToMany, configKey: "manyToMany" }
+        ];
+        for (var setIndex = 0; setIndex < relationshipSets.length; setIndex++) {
+            var set = relationshipSets[setIndex];
+            if (!Array.isArray(set.metadata)) { continue; }
+            for (var relIndex = 0; relIndex < set.metadata.length; relIndex++) {
+                var relationship = set.metadata[relIndex];
+                if (!DRB.Utilities.HasValue(relationship)) { continue; }
+                if (DRB.Utilities.HasValue(relationship.SchemaName) && relationship.SchemaName.toLowerCase() === comparer) {
+                    return { relationship: relationship, configKey: set.configKey, metadata: set.metadata };
+                }
+                if (DRB.Utilities.HasValue(relationship.NavigationProperty) && relationship.NavigationProperty.toLowerCase() === comparer) {
+                    return { relationship: relationship, configKey: set.configKey, metadata: set.metadata };
+                }
+            }
+        }
+        return null;
+    };
+
+    window.__drbFindColumnByCapturedExpandName = function (columns, name) {
+        if (!Array.isArray(columns) || !DRB.Utilities.HasValue(name)) { return null; }
+        var comparer = name.toLowerCase();
+        for (var i = 0; i < columns.length; i++) {
+            var column = columns[i];
+            if (!DRB.Utilities.HasValue(column)) { continue; }
+            if (DRB.Utilities.HasValue(column.ODataName) && column.ODataName.toLowerCase() === comparer) { return column; }
+            if (DRB.Utilities.HasValue(column.LogicalName) && column.LogicalName.toLowerCase() === comparer) { return column; }
+            if (DRB.Utilities.HasValue(column.SchemaName) && column.SchemaName.toLowerCase() === comparer) { return column; }
+        }
+        return null;
+    };
+
+    window.__drbApplyCapturedExpand = function (expandEntries) {
+        if (!Array.isArray(expandEntries) || expandEntries.length === 0) { return false; }
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return false; }
+        var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+        var hasExisting = (Array.isArray(configuration.oneToMany) && configuration.oneToMany.length > 0)
+            || (Array.isArray(configuration.manyToOne) && configuration.manyToOne.length > 0)
+            || (Array.isArray(configuration.manyToMany) && configuration.manyToMany.length > 0);
+        if (hasExisting === true) { return false; }
+
+        var relValues = {
+            oneToMany: [],
+            manyToOne: [],
+            manyToMany: []
+        };
+
+        expandEntries.forEach(function (entry) {
+            if (!DRB.Utilities.HasValue(entry) || !DRB.Utilities.HasValue(entry.name)) { return; }
+            var relationshipInfo = window.__drbFindRelationshipByExpandName(entry.name);
+            if (!DRB.Utilities.HasValue(relationshipInfo) || !DRB.Utilities.HasValue(relationshipInfo.relationship)) { return; }
+            var targetTable = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, relationshipInfo.relationship.TargetTable);
+            if (!DRB.Utilities.HasValue(targetTable) || !Array.isArray(targetTable.Columns)) { return; }
+            if (!Array.isArray(entry.selectColumns) || entry.selectColumns.length === 0) { return; }
+
+            var selectedValues = [];
+            entry.selectColumns.forEach(function (columnName) {
+                var normalized = window.__drbNormalizeSelectColumnName(columnName);
+                if (!DRB.Utilities.HasValue(normalized)) { return; }
+                var column = window.__drbFindColumnByCapturedExpandName(targetTable.Columns, normalized);
+                if (!DRB.Utilities.HasValue(column)) { return; }
+                var value = relationshipInfo.relationship.SchemaName + "|" + column.LogicalName;
+                if (selectedValues.indexOf(value) === -1) { selectedValues.push(value); }
+            });
+
+            if (selectedValues.length === 0) { return; }
+            selectedValues.forEach(function (value) {
+                if (relValues[relationshipInfo.configKey].indexOf(value) === -1) {
+                    relValues[relationshipInfo.configKey].push(value);
+                }
+            });
+        });
+
+        var applied = false;
+        if (relValues.oneToMany.length > 0) {
+            configuration.oneToMany = DRB.Logic.ExportRelationships(relValues.oneToMany, DRB.Metadata.CurrentOneToMany);
+            applied = true;
+        }
+        if (relValues.manyToOne.length > 0) {
+            configuration.manyToOne = DRB.Logic.ExportRelationships(relValues.manyToOne, DRB.Metadata.CurrentManyToOne);
+            applied = true;
+        }
+        if (relValues.manyToMany.length > 0) {
+            configuration.manyToMany = DRB.Logic.ExportRelationships(relValues.manyToMany, DRB.Metadata.CurrentManyToMany);
+            applied = true;
+        }
+
+        if (applied !== true) { return false; }
+        DRB.Metadata.CurrentNode.data.configuration = configuration;
+        if (typeof DRB.Logic.FillRelationships === "function") {
+            DRB.Logic.FillRelationships();
+        }
+        if (configuration.capturedQueryOverrides && DRB.Utilities.HasValue(configuration.capturedQueryOverrides.expand)) {
+            delete configuration.capturedQueryOverrides.expand;
+        }
+        return true;
+    };
+
+    window.__drbTrackPendingExpandInjection = function (nodeId, payload, attempt, entries) {
+        if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+        if (!window.__drbPendingExpandInjections) { window.__drbPendingExpandInjections = {}; }
+        var cleanAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+        window.__drbPendingExpandInjections[nodeId] = { payload: payload, attempt: cleanAttempt, entries: entries };
+    };
+
+    window.__drbClearPendingExpandInjection = function (nodeId) {
+        if (!window.__drbPendingExpandInjections) { return; }
+        if (window.__drbPendingExpandInjections[nodeId]) {
+            delete window.__drbPendingExpandInjections[nodeId];
+        }
+    };
+
+    window.__drbScheduleCapturedOrderByPopulation = function (nodeId, payload, attempt, cachedOrders) {
+        try {
+            if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+            var currentNode = DRB.Metadata.CurrentNode;
+            if (!DRB.Utilities.HasValue(currentNode) || currentNode.id !== nodeId) {
+                window.__drbClearPendingOrderInjection(nodeId);
+                return;
+            }
+            if (DRB.Utilities.HasValue(currentNode.data.__capturedOrderApplied)) {
+                window.__drbClearPendingOrderInjection(nodeId);
+                return;
+            }
+
+            var currentAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+            var orderEntries = Array.isArray(cachedOrders) ? cachedOrders : window.__drbExtractCapturedOrderByColumns(payload);
+            if (!Array.isArray(orderEntries) || orderEntries.length === 0) {
+                window.__drbClearPendingOrderInjection(nodeId);
+                return;
+            }
+
+            if (!DRB.Utilities.HasValue(payload.__drbOrderPopulateStart)) {
+                payload.__drbOrderPopulateStart = Date.now();
+            }
+            var maxWait = 120000;
+
+            if (!window.__drbCanPopulateCapturedOrderBy()) {
+                window.__drbTrackPendingOrderInjection(nodeId, payload, currentAttempt, orderEntries);
+                var elapsed = Date.now() - payload.__drbOrderPopulateStart;
+                if (elapsed > maxWait) {
+                    window.__drbClearPendingOrderInjection(nodeId);
+                    return;
+                }
+                var backoff = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedOrderByPopulation(nodeId, payload, currentAttempt + 1, orderEntries); }, backoff);
+                return;
+            }
+
+            var applied = window.__drbApplyCapturedOrderBy(orderEntries);
+            if (applied !== true) {
+                window.__drbTrackPendingOrderInjection(nodeId, payload, currentAttempt, orderEntries);
+                var attemptElapsed = Date.now() - payload.__drbOrderPopulateStart;
+                if (attemptElapsed > maxWait) {
+                    window.__drbClearPendingOrderInjection(nodeId);
+                    return;
+                }
+                var retryDelay = Math.min(500 + (currentAttempt * 50), 2000);
+                setTimeout(function () { window.__drbScheduleCapturedOrderByPopulation(nodeId, payload, currentAttempt + 1, orderEntries); }, retryDelay);
+                return;
+            }
+
+            window.__drbClearPendingOrderInjection(nodeId);
+            delete payload.__drbOrderPopulateStart;
+            currentNode.data.__capturedOrderApplied = true;
+        } catch (orderError) {
+            console.error(orderError);
+        }
+    };
+
+    window.__drbCanPopulateCapturedOrderBy = function () {
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode)) { return false; }
+        if (!Array.isArray(DRB.Metadata.CurrentColumns) || DRB.Metadata.CurrentColumns.length === 0) { return false; }
+        var table = $("#" + DRB.DOM.OrderColumns.Table.Id + "orderFields");
+        if (table.length === 0) { return false; }
+        return true;
+    };
+
+    window.__drbExtractCapturedOrderByColumns = function (payload) {
+        if (!DRB.Utilities.HasValue(payload)) { return []; }
+        var raw = window.__drbFindQueryValue(payload, "$orderby");
+        if (!DRB.Utilities.HasValue(raw)) { return []; }
+        var entries = raw.split(",").map(function (entry) { return entry.trim(); }).filter(function (entry) { return entry.length > 0; });
+        if (entries.length === 0) { return []; }
+        return entries.map(function (entry) {
+            var normalized = entry.replace(/\s+/g, " ").trim();
+            var parts = normalized.split(" ");
+            var name = parts[0];
+            var direction = parts.length > 1 ? parts[1].toLowerCase() : "asc";
+            if (direction !== "desc") { direction = "asc"; }
+            return { name: window.__drbNormalizeSelectColumnName(name), direction: direction };
+        });
+    };
+
+    window.__drbFindColumnByOrderName = function (orderName) {
+        if (!DRB.Utilities.HasValue(orderName) || !Array.isArray(DRB.Metadata.CurrentColumns)) { return null; }
+        var comparer = orderName.toLowerCase();
+        for (var index = 0; index < DRB.Metadata.CurrentColumns.length; index++) {
+            var column = DRB.Metadata.CurrentColumns[index];
+            if (!DRB.Utilities.HasValue(column)) { continue; }
+            if (DRB.Utilities.HasValue(column.LogicalName) && column.LogicalName.toLowerCase() === comparer) { return column; }
+            if (DRB.Utilities.HasValue(column.ODataName) && column.ODataName.toLowerCase() === comparer) { return column; }
+            if (DRB.Utilities.HasValue(column.SchemaName) && column.SchemaName.toLowerCase() === comparer) { return column; }
+        }
+        return null;
+    };
+
+    window.__drbApplyCapturedOrderBy = function (orderEntries) {
+        if (!Array.isArray(orderEntries) || orderEntries.length === 0) { return false; }
+        if (!DRB.Utilities.HasValue(DRB.Metadata.CurrentNode) || !DRB.Utilities.HasValue(DRB.Metadata.CurrentNode.data)) { return false; }
+        var configuration = DRB.Metadata.CurrentNode.data.configuration || {};
+        var resolved = [];
+        orderEntries.forEach(function (entry) {
+            if (!DRB.Utilities.HasValue(entry) || !DRB.Utilities.HasValue(entry.name)) { return; }
+            var column = window.__drbFindColumnByOrderName(entry.name);
+            if (!DRB.Utilities.HasValue(column)) { return; }
+            resolved.push({
+                logicalName: column.LogicalName,
+                schemaName: column.SchemaName,
+                label: column.Name,
+                type: column.AttributeType,
+                oDataName: column.ODataName,
+                value: entry.direction
+            });
+        });
+
+        if (resolved.length === 0) { return false; }
+        configuration.orderFields = resolved;
+        DRB.Metadata.CurrentNode.data.configuration = configuration;
+        if (typeof DRB.Logic.RetrieveMultiple.ConfigureOrderColumns === "function") {
+            DRB.Logic.RetrieveMultiple.ConfigureOrderColumns();
+        }
+        return true;
+    };
+
+    window.__drbTrackPendingOrderInjection = function (nodeId, payload, attempt, orders) {
+        if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload)) { return; }
+        if (!window.__drbPendingOrderInjections) { window.__drbPendingOrderInjections = {}; }
+        var cleanAttempt = DRB.Utilities.HasValue(attempt) ? attempt : 0;
+        window.__drbPendingOrderInjections[nodeId] = { payload: payload, attempt: cleanAttempt, orders: orders };
+    };
+
+    window.__drbClearPendingOrderInjection = function (nodeId) {
+        if (!window.__drbPendingOrderInjections) { return; }
+        if (window.__drbPendingOrderInjections[nodeId]) {
+            delete window.__drbPendingOrderInjections[nodeId];
+        }
+    };
+
     window.__drbScheduleCapturedFetchXmlPopulation = function (nodeId, payload, attempt) {
         try {
             if (!DRB.Utilities.HasValue(nodeId) || !DRB.Utilities.HasValue(payload) || !DRB.Utilities.HasValue(payload.fetchXml)) { return; }
@@ -20754,17 +21045,46 @@ if (typeof window !== "undefined") {
     if (typeof chrome === "undefined" || !DRB.Utilities.HasValue(chrome.webview) || typeof chrome.webview.addEventListener !== "function") { return; }
     chrome.webview.addEventListener("message", function (event) {
         try {
-            var data = event.data;
+            var data = event && event.data ? event.data : null;
             if (typeof data === "string") { data = JSON.parse(data); }
-            if (!DRB.Utilities.HasValue(data) || data.action !== "captured-request") { return; }
-            if (typeof window.__drbReceiveCapturedRequest === "function") {
-                window.__drbReceiveCapturedRequest(data.data);
+            if (!DRB.Utilities.HasValue(data) || !data.action) { return; }
+            if (data.action === "captured-request") {
+                if (typeof window.__drbReceiveCapturedRequest === "function") {
+                    window.__drbReceiveCapturedRequest(data.data);
+                }
+            } else if (data.action === "restmetadata-get-result" || data.action === "restmetadata-set-result") {
+                if (DRB.Utilities.HasValue(DRB.Xrm) && typeof DRB.Xrm.HandleWebViewMessage === "function") {
+                    DRB.Xrm.HandleWebViewMessage(data);
+                }
             }
         } catch (ex) {
             console.error(ex);
         }
     });
 })();
+DRB.InsertMainBodyContent = function () {
+        $("#" + DRB.DOM.MainBody.Id).html(`
+        <div class="drb-shell">
+            <div class="drb-body split">
+                <aside id="${DRB.DOM.Split.Menu.Id}" class="drb-panel drb-panel--left">
+                    <div class="drb-card drb-card--tree">
+                        <div class="drb-card__title-row">
+                            <h2 class="drb-card__title">Request Explorer</h2>
+                        </div>
+                        <div class="drb-tree-actions" id="${DRB.DOM.Collection.Menu.Id}" role="group" aria-label="Collection actions"></div>
+                        <div class="drb-card__body">
+                            <div id="${DRB.DOM.TreeView.Id}" class="drb-tree"></div>
+                        </div>
+                    </div>
+                </aside>
+                <section id="${DRB.DOM.Split.Content.Id}" class="drb-panel drb-panel--right">
+                    <div class="drb-card drb-card--content">
+                        <div id="${DRB.DOM.MainContent.Id}" class="drb-main-content" style="display: none;"></div>
+                    </div>
+                </section>
+            </div>
+        </div>`);
+}
 
 /**
  * Main function called by the Index
@@ -20844,6 +21164,11 @@ DRB.Initialize = async function () {
     Split(["#" + DRB.DOM.Split.Menu.Id, "#" + DRB.DOM.Split.Content.Id], { sizes: [10, 90], minSize: 200, gutterSize: 5 }); // Split
     DRB.SetDefaultSettings();
     DRB.DefineOperations();
+    // Ensure a default collection exists on first load.
+    try {
+        var tree = $("#" + DRB.DOM.TreeView.Id).jstree(true);
+        if (DRB.Utilities.HasValue(tree) && tree.get_json().length === 0) { DRB.Collection.CreateDefault(); }
+    } catch (ex) { }
 
     // Tab script
     $(document).ready(function () {
@@ -20863,5 +21188,8 @@ DRB.Initialize = async function () {
     // Complete Initialize
     DRB.Logic.CompleteInitialize();
 }
-// #endregion  
- 
+// #endregion
+
+
+
+

@@ -25,6 +25,25 @@ DRB.GenerateCode.SetCodeEditors = function (codeXrmWebApi, codeXrmWebApiExecute,
 }
 
 /**
+ * Generate Code - Get Captured Query Override
+ * Returns sanitized override values stored during request capture
+ * @param {any} settings Configuration
+ * @param {string} propertyName Override name (e.g. "filter", "expand")
+ */
+DRB.GenerateCode.GetCapturedQueryOverride = function (settings, propertyName) {
+    if (!DRB.Utilities.HasValue(settings) || !DRB.Utilities.HasValue(propertyName)) { return ""; }
+    if (!DRB.Utilities.HasValue(settings.capturedQueryOverrides)) { return ""; }
+    var overrideValue = settings.capturedQueryOverrides[propertyName];
+    if (!DRB.Utilities.HasValue(overrideValue)) { return ""; }
+    var sanitizedValue = overrideValue.toString().trim();
+    if (sanitizedValue === "") { return ""; }
+    sanitizedValue = sanitizedValue.replace(/^\?/, "");
+    var pattern = new RegExp('^\\$?' + propertyName + '=', 'i');
+    sanitizedValue = sanitizedValue.replace(pattern, "");
+    return sanitizedValue;
+}
+
+/**
  * Generate Code - Get Url Fields
  * Used in Retrieve Single, Retrieve Multiple, Create, Update
  * @param {any} settings Configuration
@@ -36,7 +55,8 @@ DRB.GenerateCode.GetUrlFields = function (settings) {
     if (settings.fields.length > 0) { urlFields = '$select=' + fieldLogicalNames.join(); }
 
     // check relationships
-    if (settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0) {
+    var hasRelationshipExpansions = settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0;
+    if (hasRelationshipExpansions) {
         if (urlFields !== '') { urlFields += '&'; }
         urlFields += '$expand=';
     }
@@ -55,6 +75,14 @@ DRB.GenerateCode.GetUrlFields = function (settings) {
         var relFieldLogicalNames = manyToMany.fields.map(function (field) { return field.oDataName; });
         urlFields += manyToMany.schemaName + '($select=' + relFieldLogicalNames.join() + '),';
     });
+
+    if (hasRelationshipExpansions === false) {
+        var overrideExpand = DRB.GenerateCode.GetCapturedQueryOverride(settings, "expand");
+        if (DRB.Utilities.HasValue(overrideExpand)) {
+            if (urlFields !== '') { urlFields += '&'; }
+            urlFields += '$expand=' + overrideExpand;
+        }
+    }
 
     if (urlFields !== '') {
         urlFields = '?' + urlFields;
@@ -454,9 +482,14 @@ DRB.GenerateCode.GetFilterFields = function (settings) {
     var filterFields = DRB.GenerateCode.ParseFilterCriteria("", settings.filterCriteria);
     if (filterFields !== "") {
         // add $filter= clause
-        filterFields = '$filter=' + filterFields;
+        return '$filter=' + filterFields;
     }
-    return filterFields;
+
+    var overrideFilter = DRB.GenerateCode.GetCapturedQueryOverride(settings, "filter");
+    if (DRB.Utilities.HasValue(overrideFilter)) {
+        return '$filter=' + overrideFilter;
+    }
+    return '';
 }
 
 /**
@@ -479,8 +512,14 @@ DRB.GenerateCode.GetOrderFields = function (settings) {
     if (orderFields !== '') {
         orderFields = '$orderby=' + orderFields;
         if (orderFields.slice(-1) === ',') { orderFields = orderFields.slice(0, -1); }
+        return orderFields;
     }
-    return orderFields;
+
+    var overrideOrder = DRB.GenerateCode.GetCapturedQueryOverride(settings, "orderby");
+    if (DRB.Utilities.HasValue(overrideOrder)) {
+        return '$orderby=' + overrideOrder;
+    }
+    return '';
 }
 
 /**
@@ -5170,7 +5209,8 @@ DRB.GenerateCode.PowerAutomate = function (requestType) {
 
     var expandQuery = "";
     // #region Expand Query
-    if (settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0) {
+    var hasRelationshipExpansions = settings.oneToMany.length > 0 || settings.manyToOne.length > 0 || settings.manyToMany.length > 0;
+    if (hasRelationshipExpansions) {
         settings.oneToMany.forEach(function (oneToMany) {
             var relFieldLogicalNames = oneToMany.fields.map(function (field) { return field.oDataName; });
             expandQuery += oneToMany.schemaName + '($select=' + relFieldLogicalNames.join() + '),';
@@ -5187,6 +5227,9 @@ DRB.GenerateCode.PowerAutomate = function (requestType) {
         });
 
         if (expandQuery.slice(-1) === ',') { expandQuery = expandQuery.slice(0, -1); }
+    } else {
+        var capturedExpand = DRB.GenerateCode.GetCapturedQueryOverride(settings, "expand");
+        if (DRB.Utilities.HasValue(capturedExpand)) { expandQuery = capturedExpand; }
     }
     // #endregion
 

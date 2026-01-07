@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.2] - 2026-01-07
+### Added
+- Implemented Rest Builder caching
+- Added Dark Mode
+
+
 ## [1.0.1] - 2026-01-06
 ### Added
 - Implemented ILogger, IServiceEndpointNotificationService and IFeatureControlService into the plugin execution context

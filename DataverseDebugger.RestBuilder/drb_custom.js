@@ -1,4 +1,4 @@
-﻿// #region DRB.Namespaces
+// #region DRB.Namespaces
 var DRB = {}; // Application Namespace
 DRB.DOM = {}; // DOM
 DRB.Common = {}; // Common Functions
@@ -25,8 +25,8 @@ DRB.Logic.PredefinedQuery = {}; // Predefined Query Functions
 DRB.Logic.DataverseExecute = {}; // Dataverse Action, Dataverse Function Functions
 DRB.Logic.ExecuteWorkflow = {}; // Execute Workflow Functions
 DRB.Logic.ManageFileImageData = {}; // Manage File Image Data Functions
-// #endregion  
- 
+// #endregion
+
 // #region DRB.DOM
 // Main Content
 DRB.DOM.MainBody = { Id: "main_body" }; // defined also inside index.htm
@@ -557,9 +557,9 @@ DRB.DOM.Lookup.SelectButton = { Id: "btn_selectlookup_", Name: "Select", Class: 
 DRB.DOM.Lookup.NoRecordsSpan = { Id: "span_norecordslookup", Name: "No Records" };
 // #endregion
 // #endregion
-  
- 
-﻿// #region DRB.Utilities
+
+
+// #region DRB.Utilities
 /**
  * Utilities - Has Value
  * Returns true if a parameter is not undefined, not null and not an empty string, otherwise returns false
@@ -703,9 +703,9 @@ DRB.Utilities.CustomSort = function (property) {
     }
 }
 // #endregion
-  
- 
-﻿// #region DRB.Xrm.GetDemoData
+
+
+// #region DRB.Xrm.GetDemoData
 /**
  * Get Demo Data based on parameters
  * @param {any[]} queries Queries
@@ -1196,9 +1196,9 @@ DRB.Xrm.GetDemoMetadata = function () {
     </Function>  
 </Schema>`;
 }
-// #endregion  
- 
-﻿// #region DRB.Models
+// #endregion
+
+// #region DRB.Models
 /**
  * Models - Dropdown Option
  * @param {any} value Value
@@ -1768,8 +1768,8 @@ DRB.Models.DataverseTable = function (logicalName, name, schemaName, entitySetNa
 
     this.ToDropdownOption = function () { return new DRB.Models.DropdownOption(this.Id, this.Name, this.LogicalName); }
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.UI
 // #region bootstrap-select Functions
 /**
@@ -2487,9 +2487,9 @@ DRB.UI.OpenLookup = function (settings) {
 }
 // #endregion
 // #endregion
-  
- 
-﻿// #region DRB.Xrm
+
+
+// #region DRB.Xrm
 /**
  * Xrm - Get Xrm Object
  */
@@ -2999,8 +2999,8 @@ DRB.Xrm.GetServerVersion = function (serverUrl, token) {
     });
 }
 // #endregion
-  
- 
+
+
 // #region DRB.Common.Xrm
 /**
  * Common - Retrieve Tables
@@ -3358,8 +3358,8 @@ DRB.Common.SetTables = function (args, tables, mapRelationships, mapAlternateKey
     });
 }
 // #endregion
-  
- 
+
+
 // #region DRB.Common.Map
 /**
  * Common - Map Tables
@@ -4080,8 +4080,8 @@ DRB.Common.MapCustomActionResponseProperties = function (data, customActions) {
         });
     }
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Common
 /**
  * Common - Get Error Message
@@ -4451,8 +4451,8 @@ window.addEventListener("message", (event) => {
             break;
     }
 });
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic
 /**
  * Logic - Console To Results Editor
@@ -5521,8 +5521,8 @@ DRB.Logic.RemoveImage = function (domObject, metadataPath, elementIndex) {
     });
 }
 // #endregion
-  
- 
+
+
 // #region DRB.Logic.Bindings
 /**
  * Logic - Bind Property Boolean Value
@@ -6027,8 +6027,8 @@ DRB.Logic.ClickSelectRelationshipColumns = function (relationshipType) {
     DRB.Logic.BindSelectRelationship(selectDOM.Relationship.Dropdown.Id, relationshipMetadata, selectDOM.Columns.Dropdown, DRB.DOM.Relationship[relationshipType].Dropdown);
     DRB.Logic.BindSelectRelationshipColumns(selectDOM.Columns.Dropdown.Id, relationshipType, relationshipMetadata);
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.GenerateCode
 /**
  * Generate Code - Set Code Editors
@@ -11984,8 +11984,8 @@ DRB.GenerateCode.Start = function () {
     }
 }
 // #endregion
-  
- 
+
+
 // #region DRB.GeneratePostman
 /**
  * Generate Postman - Return Values
@@ -12581,8 +12581,8 @@ DRB.GeneratePostman.Start = function (requestType, settings) {
             break;
     }
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.CustomUI
 /**
  * Add Spacer
@@ -12873,8 +12873,8 @@ DRB.CustomUI.AddTypeColumns = function (container, columnType, domObject, metada
     $("#" + DRB.DOM[domObject].MainDiv.Id + metadataPath).hide();
 }
 // #endregion
-  
- 
+
+
 // #region DRB.Logic.RetrieveSingle
 /**
  * Retrieve Single - After Table Loaded
@@ -12994,8 +12994,8 @@ DRB.Logic.RetrieveSingle.Start = function () {
     } else { DRB.UI.LockDropdown(DRB.DOM.UseAlternateKey.Dropdown.Id); }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Column
 // Columns Functions, used by Set Columns (Create, Update) Order Columns (Retrieve Multiple), Filter Columns (Retrieve Multiple)
 
@@ -13390,8 +13390,8 @@ DRB.Logic.AddColumn = function (columnType, domObject, metadataPath, fromRelatio
     // refresh arrows
     DRB.Logic.RefreshArrows(metadataPath);
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Filter
 // Filter Columns Functions (used in Retrieve Multiple)
 /**
@@ -14040,8 +14040,8 @@ DRB.Logic.BindFilterLookupRelationship = function (id, columnType, domObject, me
         DRB.Logic.RefreshColumns(columnType, domObject, metadataPath);
     });
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Order
 // Order Columns Functions (used in Retrieve Multiple)
 
@@ -14160,8 +14160,8 @@ DRB.Logic.BindOrderColumn = function (id, columnType, domObject, metadataPath) {
         DRB.Logic.RefreshColumns(columnType, domObject, metadataPath);
     });
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.RetrieveMultiple
 /**
  * Retrieve Multiple - Refresh Dropdown Logic
@@ -15556,8 +15556,8 @@ DRB.Logic.RetrieveMultiple.Start = function () {
     // #endregion
 }
 // #endregion
-  
- 
+
+
 // #region DRB.Logic.SetColumns
 // Set Functions (used in Create, Update)
 
@@ -16014,8 +16014,8 @@ DRB.Logic.BindSetTable = function (id, columnType, domObject, metadataPath) {
         }
     });
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Create
 /**
  * Create - Start 
@@ -16090,8 +16090,8 @@ DRB.Logic.Create.Start = function () {
     $("#" + DRB.DOM.ReturnRecord.Dropdown.Id).val(returnRecordValue).change();
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Update
 /**
  * Update - Start
@@ -16173,8 +16173,8 @@ DRB.Logic.Update.Start = function () {
     $("#" + DRB.DOM.ReturnRecord.Dropdown.Id).val(returnRecordValue).change();
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Delete
 /**
  * Delete - After Table Loaded
@@ -16259,8 +16259,8 @@ DRB.Logic.Delete.Start = function () {
     } else { DRB.UI.LockDropdown(DRB.DOM.UseAlternateKey.Dropdown.Id); }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.Association
 /**
  * Association - Remove Child Id
@@ -16538,8 +16538,8 @@ DRB.Logic.Association.Start = function () {
     }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.RetrieveNextLink
 /**
  * Retrieve NextLink - Bind NextLink
@@ -16591,8 +16591,8 @@ DRB.Logic.RetrieveNextLink.Start = function () {
 
     DRB.CustomUI.AddSpacer();
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.PredefinedQuery
 /**
  * Predefined Query - After Table Loaded
@@ -16811,8 +16811,8 @@ DRB.Logic.PredefinedQuery.Start = function () {
     // #endregion
 }
 // #endregion
-  
- 
+
+
 // #region DRB.Logic.DataverseExecute
 /**
  * Dataverse Execute - Download Dataverse Custom APIs
@@ -18084,8 +18084,8 @@ DRB.Logic.DataverseExecute.Start = function (requestType) {
     }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.ExecuteWorkflow
 /**
  * Execute Workflow - Bind Table
@@ -18152,8 +18152,8 @@ DRB.Logic.ExecuteWorkflow.Start = function () {
     }
     // #endregion
 }
-// #endregion  
- 
+// #endregion
+
 // #region DRB.Logic.ManageFileImageData
 /**
  * Manage File Image Data - After Table Loaded
@@ -18578,9 +18578,9 @@ DRB.Logic.ManageFileImageData.Start = function (requestType) {
     }
     // #endregion
 }
-// #endregion  
- 
-﻿// #region DRB.Collection
+// #endregion
+
+// #region DRB.Collection
 /**
  * Collection - Load Nodes
  * @param {any} nodes Nodes
@@ -18743,9 +18743,9 @@ DRB.Collection.Save = function () {
 }
 
 // #endregion
-  
- 
-﻿// #region DRB.Initialize
+
+
+// #region DRB.Initialize
 /**
  * Set Default Settings
  */
@@ -21038,7 +21038,6 @@ DRB.InsertMainBodyContent = function () {
                         <span id="${DRB.DOM.ContextSpan.Id}" class="drb-context-pill">Detecting context...</span>
                     </div>
                     <p class="drb-header__subtitle">Compose, organize, and execute Dataverse calls without leaving the debugger workspace.</p>
-                    <p class="drb-header__subtitle">RB build 2025-02-11</p>
                 </div>
                 <div class="drb-header__actions">
                     <div class="drb-header__badge">
@@ -21176,5 +21175,5 @@ DRB.Initialize = async function () {
 // #endregion
 
 
-  
- 
+
+

@@ -21030,22 +21030,6 @@ if (typeof window !== "undefined") {
 DRB.InsertMainBodyContent = function () {
         $("#" + DRB.DOM.MainBody.Id).html(`
         <div class="drb-shell">
-            <header class="drb-header">
-                <div class="drb-header__titles">
-                    <p class="drb-header__eyebrow">Dataverse Debugger</p>
-                    <div class="drb-header__title-row">
-                        <h1 class="drb-header__title">REST Builder</h1>
-                        <span id="${DRB.DOM.ContextSpan.Id}" class="drb-context-pill">Detecting context...</span>
-                    </div>
-                    <p class="drb-header__subtitle">Compose, organize, and execute Dataverse calls without leaving the debugger workspace.</p>
-                </div>
-                <div class="drb-header__actions">
-                    <div class="drb-header__badge">
-                        <span class="drb-header__dot"></span>
-                        Live workspace
-                    </div>
-                </div>
-            </header>
             <div class="drb-body split">
                 <aside id="${DRB.DOM.Split.Menu.Id}" class="drb-panel drb-panel--left">
                     <div class="drb-card drb-card--tree">

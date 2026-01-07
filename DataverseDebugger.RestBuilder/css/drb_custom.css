@@ -234,7 +234,7 @@ body[data-drb-theme="light"] .drb-header__badge {
 }
 
 .drb-body {
-    margin-top: 6px;
+    margin-top: 1px;
     display: flex;
     gap: 6px;
     flex: 1;
@@ -1080,7 +1080,7 @@ label {
 .split {
     display: flex;
     flex-direction: row;
-    gap: 6px;
+    gap: 0px;
 }
 
 .drb-body.split .gutter {

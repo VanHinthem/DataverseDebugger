@@ -11,7 +11,8 @@ DRB.Logic.PredefinedQuery.AfterTableLoaded = function (table) {
     $("#" + DRB.DOM.QueryType.Dropdown.Id).val(DRB.Metadata.CurrentNode.data.configuration.queryType).change();
     $("#" + DRB.DOM.PersonalViewId.Dropdown.Id).val(DRB.Metadata.CurrentNode.data.configuration.personalViewId);
     DRB.UI.RefreshDropdown(DRB.DOM.PersonalViewId.Dropdown.Id);
-    DRB.Metadata.XMLEditor.session.setValue(DRB.Metadata.CurrentNode.data.configuration.fetchXML);
+    var fetchXML = DRB.Metadata.CurrentNode.data.configuration.fetchXML;
+    DRB.Metadata.XMLEditor.session.setValue(DRB.Utilities.FormatXml(fetchXML));
 }
 
 /**

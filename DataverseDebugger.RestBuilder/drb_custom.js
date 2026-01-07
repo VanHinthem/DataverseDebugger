@@ -18657,32 +18657,72 @@ DRB.Collection.Parse = function (e) {
         var reader = new FileReader();
         // define onload event after the file is read
         reader.onload = function (e) {
-            try {
-                // get file content
-                var fileContent = e.target.result;
-                // parse file content as json
-                var parsedContent = JSON.parse(fileContent);
-                // version check
-                if (parsedContent.version > 1) {
-                    DRB.UI.ShowError("Load Collection Error", "This file has been created for a newer version of Dataverse REST Builder");
-                } else {
-                    // create an empty data structure
-                    var currentNodes = [{}];
-                    // import jsTree nodes to the new data structure
-                    DRB.Collection.ImportNodes(parsedContent, currentNodes[0]);
-                    // load nodes
-                    DRB.Collection.LoadNodes(currentNodes);
-                }
-            } catch (e) {
-                // something went wrong when parsing the file, show error
-                DRB.UI.ShowError("Load Collection Error", "Failed to parse the selected file. Make sure the file is a collection for Dataverse REST Builder");
-            }
+            DRB.Collection.ParseText(e.target.result);
         };
         // read the file as text
         reader.readAsText(file);
     }
     // reset the File Input (necessary if load again the same file name)
     $(e.target).val("");
+}
+
+/**
+ * Collection - Parse Text
+ * @param {string} fileContent File Content
+ */
+DRB.Collection.ParseText = function (fileContent) {
+    try {
+        // parse file content as json
+        var parsedContent = JSON.parse(fileContent);
+        // version check
+        if (parsedContent.version > 1) {
+            DRB.UI.ShowError("Load Collection Error", "This file has been created for a newer version of Dataverse REST Builder");
+        } else {
+            // create an empty data structure
+            var currentNodes = [{}];
+            // import jsTree nodes to the new data structure
+            DRB.Collection.ImportNodes(parsedContent, currentNodes[0]);
+            // load nodes
+            DRB.Collection.LoadNodes(currentNodes);
+        }
+    } catch (e) {
+        // something went wrong when parsing the file, show error
+        DRB.UI.ShowError("Load Collection Error", "Failed to parse the selected file. Make sure the file is a collection for Dataverse REST Builder");
+    }
+}
+
+/**
+* Collection - Load From Text
+* @param {string} fileContent File Content
+*/
+DRB.Collection.LoadFromText = function (fileContent) {
+    DRB.Collection.ParseText(fileContent);
+}
+
+/**
+ * Collection - Get Save Payload
+ */
+DRB.Collection.GetSavePayload = function () {
+    // get jsTree data structure
+    var currentNodes = $("#" + DRB.DOM.TreeView.Id).jstree(true).get_json("#");
+    // if no nodes then show error
+    if (currentNodes.length === 0) {
+        DRB.UI.ShowError("Save Collection", "Create or Load a Collection before Save");
+        return null;
+    }
+
+    // get current DateTime
+    var now = new Date();
+    // create json collection
+    var collection = {};
+    collection.created_on = now.toJSON(); // current DateTime as json 
+    collection.version = 1; // collection version
+    // export jsTree nodes to the json collection
+    DRB.Collection.ExportNodes(currentNodes[0], collection);
+    // create fileName and fileDate (coming from current DateTime) to be used inside a valid filename
+    var fileName = currentNodes[0].text.replace(/[^a-z0-9]/gi, "_");
+    var fileDate = now.toLocaleString("sv").replace(/ /g, "_").replace(/-/g, "").replace(/:/g, "");
+    return { fileName: fileName + "_" + fileDate + ".json", content: JSON.stringify(collection, null, "\t") };
 }
 
 /**
@@ -18927,13 +18967,8 @@ DRB.SetDefaultSettings = function () {
 DRB.DefineOperations = function () {
     // #region Menu
     var inp_LoadFile = DRB.UI.CreateInputFile(DRB.DOM.Collection.LoadInput.Id, true, DRB.Collection.Parse);
-    var btn_LoadCollection = DRB.UI.CreateButton(DRB.DOM.Collection.LoadButton.Id, DRB.DOM.Collection.LoadButton.Name, DRB.DOM.Collection.LoadButton.Class, DRB.Collection.Load);
-    var btn_SaveCollection = DRB.UI.CreateButton(DRB.DOM.Collection.SaveButton.Id, DRB.DOM.Collection.SaveButton.Name, DRB.DOM.Collection.SaveButton.Class, DRB.Collection.Save);
-
     var menu = $("#" + DRB.DOM.Collection.Menu.Id);
     menu.append(inp_LoadFile);
-    menu.append(btn_LoadCollection);
-    menu.append(btn_SaveCollection);
     // #endregion
 
     // #region jsTree
@@ -21034,10 +21069,7 @@ DRB.InsertMainBodyContent = function () {
                 <aside id="${DRB.DOM.Split.Menu.Id}" class="drb-panel drb-panel--left">
                     <div class="drb-card drb-card--tree">
                         <div class="drb-card__title-row">
-                            <div>
-                                <p class="drb-eyebrow">Collections</p>
-                                <h2 class="drb-card__title">Request Explorer</h2>
-                            </div>
+                            <h2 class="drb-card__title">Request Explorer</h2>
                         </div>
                         <div class="drb-tree-actions" id="${DRB.DOM.Collection.Menu.Id}" role="group" aria-label="Collection actions"></div>
                         <div class="drb-card__body">

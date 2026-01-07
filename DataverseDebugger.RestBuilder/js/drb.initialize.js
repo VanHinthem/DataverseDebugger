@@ -180,13 +180,8 @@ DRB.SetDefaultSettings = function () {
 DRB.DefineOperations = function () {
     // #region Menu
     var inp_LoadFile = DRB.UI.CreateInputFile(DRB.DOM.Collection.LoadInput.Id, true, DRB.Collection.Parse);
-    var btn_LoadCollection = DRB.UI.CreateButton(DRB.DOM.Collection.LoadButton.Id, DRB.DOM.Collection.LoadButton.Name, DRB.DOM.Collection.LoadButton.Class, DRB.Collection.Load);
-    var btn_SaveCollection = DRB.UI.CreateButton(DRB.DOM.Collection.SaveButton.Id, DRB.DOM.Collection.SaveButton.Name, DRB.DOM.Collection.SaveButton.Class, DRB.Collection.Save);
-
     var menu = $("#" + DRB.DOM.Collection.Menu.Id);
     menu.append(inp_LoadFile);
-    menu.append(btn_LoadCollection);
-    menu.append(btn_SaveCollection);
     // #endregion
 
     // #region jsTree
@@ -2287,10 +2282,7 @@ DRB.InsertMainBodyContent = function () {
                 <aside id="${DRB.DOM.Split.Menu.Id}" class="drb-panel drb-panel--left">
                     <div class="drb-card drb-card--tree">
                         <div class="drb-card__title-row">
-                            <div>
-                                <p class="drb-eyebrow">Collections</p>
-                                <h2 class="drb-card__title">Request Explorer</h2>
-                            </div>
+                            <h2 class="drb-card__title">Request Explorer</h2>
                         </div>
                         <div class="drb-tree-actions" id="${DRB.DOM.Collection.Menu.Id}" role="group" aria-label="Collection actions"></div>
                         <div class="drb-card__body">

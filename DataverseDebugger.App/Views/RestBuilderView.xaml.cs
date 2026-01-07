@@ -17,6 +17,7 @@ using DataverseDebugger.App.Models;
 using DataverseDebugger.App.Runner;
 using DataverseDebugger.App.Services;
 using DataverseDebugger.Protocol;
+using Microsoft.Win32;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -78,6 +79,7 @@ namespace DataverseDebugger.App.Views
         private string? _currentUserDataFolder;
         private EnvironmentProfile? _activeProfile;
         private bool _suppressDebugToggle;
+        private string? _lastCollectionFolder;
 
         public Func<CapturedRequest, Task>? BeforeAutoProxyAsync { get; set; }
         public Func<CapturedRequest, ExecuteResponse, Task>? AfterAutoProxyAsync { get; set; }
@@ -1424,6 +1426,75 @@ namespace DataverseDebugger.App.Views
             _suppressDebugToggle = false;
         }
 
+        private async void OnLoadCollectionClick(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Load REST Builder collection",
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*"
+            };
+
+            if (!string.IsNullOrWhiteSpace(_lastCollectionFolder) && Directory.Exists(_lastCollectionFolder))
+            {
+                dialog.InitialDirectory = _lastCollectionFolder;
+            }
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            string fileContent;
+            try
+            {
+                fileContent = File.ReadAllText(dialog.FileName);
+                _lastCollectionFolder = Path.GetDirectoryName(dialog.FileName);
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Load collection failed: {ex.Message}");
+                return;
+            }
+
+            await ExecuteCollectionLoadAsync(fileContent);
+        }
+
+        private async void OnSaveCollectionClick(object sender, RoutedEventArgs e)
+        {
+            var payload = await TryGetCollectionSavePayloadAsync();
+            if (payload == null)
+            {
+                return;
+            }
+
+            var dialog = new SaveFileDialog
+            {
+                Title = "Save REST Builder collection",
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                FileName = payload.FileName ?? "collection.json"
+            };
+
+            if (!string.IsNullOrWhiteSpace(_lastCollectionFolder) && Directory.Exists(_lastCollectionFolder))
+            {
+                dialog.InitialDirectory = _lastCollectionFolder;
+            }
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            try
+            {
+                File.WriteAllText(dialog.FileName, payload.Content ?? string.Empty);
+                _lastCollectionFolder = Path.GetDirectoryName(dialog.FileName);
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Save collection failed: {ex.Message}");
+            }
+        }
+
         public void SetWebViewVisibility(bool visible)
         {
             if (WebViewContainer == null)
@@ -1453,12 +1524,87 @@ namespace DataverseDebugger.App.Views
             _webView?.CoreWebView2?.OpenDevToolsWindow();
         }
 
+        private async Task ExecuteCollectionActionAsync(string actionName)
+        {
+            var core = _webView?.CoreWebView2;
+            if (!_webViewReady || core == null)
+            {
+                LogService.Append($"[RestBuilder] {actionName} collection ignored: WebView not ready.");
+                return;
+            }
+
+            try
+            {
+                var script = $"(function(){{ if (window.DRB && DRB.Collection && typeof DRB.Collection.{actionName} === 'function') {{ DRB.Collection.{actionName}(); }} }})();";
+                await core.ExecuteScriptAsync(script);
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] {actionName} collection failed: {ex.Message}");
+            }
+        }
+
+        private async Task ExecuteCollectionLoadAsync(string fileContent)
+        {
+            var core = _webView?.CoreWebView2;
+            if (!_webViewReady || core == null)
+            {
+                LogService.Append("[RestBuilder] Load collection ignored: WebView not ready.");
+                return;
+            }
+
+            try
+            {
+                var payload = JsonSerializer.Serialize(fileContent);
+                var script = $"(function(){{ if (window.DRB && DRB.Collection && typeof DRB.Collection.LoadFromText === 'function') {{ DRB.Collection.LoadFromText({payload}); }} }})();";
+                await core.ExecuteScriptAsync(script);
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Load collection failed: {ex.Message}");
+            }
+        }
+
+        private async Task<CollectionSavePayload?> TryGetCollectionSavePayloadAsync()
+        {
+            var core = _webView?.CoreWebView2;
+            if (!_webViewReady || core == null)
+            {
+                LogService.Append("[RestBuilder] Save collection ignored: WebView not ready.");
+                return null;
+            }
+
+            try
+            {
+                var result = await core.ExecuteScriptAsync("(function(){ if (window.DRB && DRB.Collection && typeof DRB.Collection.GetSavePayload === 'function') { return DRB.Collection.GetSavePayload(); } return null; })();");
+                if (string.IsNullOrWhiteSpace(result) || result == "null")
+                {
+                    return null;
+                }
+
+                return JsonSerializer.Deserialize<CollectionSavePayload>(result, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Save collection failed: {ex.Message}");
+                return null;
+            }
+        }
+
         private void UpdateNavButtons()
         {
             var core = _webView?.CoreWebView2;
             var ready = core != null;
+            if (LoadCollectionButton != null) LoadCollectionButton.IsEnabled = ready;
+            if (SaveCollectionButton != null) SaveCollectionButton.IsEnabled = ready;
             if (RefreshButton != null) RefreshButton.IsEnabled = ready;
             if (DevToolsButton != null) DevToolsButton.IsEnabled = ready;
+        }
+
+        private sealed class CollectionSavePayload
+        {
+            public string? FileName { get; set; }
+            public string? Content { get; set; }
         }
 
         private void NavigateToRestBuilder()

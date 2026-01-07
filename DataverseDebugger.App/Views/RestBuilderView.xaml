@@ -22,6 +22,15 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="LoadCollectionButton" Style="{DynamicResource ModernToolbarButton}" Width="90" Click="OnLoadCollectionClick" IsEnabled="False">
+                    <TextBlock Text="&#x1F4C2; Load"/>
+                </Button>
+                <Button x:Name="SaveCollectionButton" Style="{DynamicResource ModernToolbarButton}" Width="90" Margin="8 0 0 0" Click="OnSaveCollectionClick" IsEnabled="False">
+                    <TextBlock Text="&#x1F4BE; Save"/>
+                </Button>
+            </StackPanel>
+
             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                 <Button x:Name="RefreshButton" Style="{DynamicResource ModernToolbarButton}" Width="80" Click="OnRefreshClick" IsEnabled="False" Margin="0 0 8 0">
                     <TextBlock Text="&#x27F3; Reload"/>

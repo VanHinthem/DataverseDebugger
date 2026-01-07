@@ -9,17 +9,11 @@ DRB.SetDefaultSettings = function () {
     { Id: "create", Name: "Create" },
     { Id: "update", Name: "Update" },
     { Id: "delete", Name: "Delete" },
-    { Id: "associate", Name: "Associate" },
-    { Id: "disassociate", Name: "Disassociate" },
-    { Id: "retrievenextlink", Name: "Retrieve NextLink" },
     { Id: "predefinedquery", Name: "Predefined Query" },
     { Id: "executecustomapi", Name: "Execute Custom API" },
     { Id: "executecustomaction", Name: "Execute Custom Action" },
     { Id: "executeaction", Name: "Execute Action" },
-    { Id: "executefunction", Name: "Execute Function" },
-    { Id: "executeworkflow", Name: "Execute Workflow" },
-    { Id: "managefiledata", Name: "Manage File Data" },
-    { Id: "manageimagedata", Name: "Manage Image Data" }];
+    { Id: "executefunction", Name: "Execute Function" }];
     DRB.Settings.RequestTypes = [];
     requests.forEach(function (request) { DRB.Settings.RequestTypes.push(new DRB.Models.IdValue(request.Id, request.Name)); });
     // #endregion
@@ -185,13 +179,11 @@ DRB.SetDefaultSettings = function () {
 DRB.DefineOperations = function () {
     // #region Menu
     var inp_LoadFile = DRB.UI.CreateInputFile(DRB.DOM.Collection.LoadInput.Id, true, DRB.Collection.Parse);
-    var btn_NewCollection = DRB.UI.CreateButton(DRB.DOM.Collection.NewButton.Id, DRB.DOM.Collection.NewButton.Name, DRB.DOM.Collection.NewButton.Class, DRB.Collection.New);
     var btn_LoadCollection = DRB.UI.CreateButton(DRB.DOM.Collection.LoadButton.Id, DRB.DOM.Collection.LoadButton.Name, DRB.DOM.Collection.LoadButton.Class, DRB.Collection.Load);
     var btn_SaveCollection = DRB.UI.CreateButton(DRB.DOM.Collection.SaveButton.Id, DRB.DOM.Collection.SaveButton.Name, DRB.DOM.Collection.SaveButton.Class, DRB.Collection.Save);
 
     var menu = $("#" + DRB.DOM.Collection.Menu.Id);
     menu.append(inp_LoadFile);
-    menu.append(btn_NewCollection);
     menu.append(btn_LoadCollection);
     menu.append(btn_SaveCollection);
     // #endregion
@@ -208,46 +200,18 @@ DRB.DefineOperations = function () {
                         "action": function (data) {
                             var inst = $.jstree.reference(data.reference);
                             var obj = inst.get_node(data.reference);
-                            inst.create_node(obj, { "type": "request", "text": "New Request" }, "last", function (new_node) {
-                                try { inst.edit(new_node); } catch (ex) { setTimeout(function () { inst.edit(new_node); }, 0); }
-                            });
-                        }
-                    },
-                    "createfolder": {
-                        "label": "Create Folder",
-                        "action": function (data) {
-                            var inst = $.jstree.reference(data.reference);
-                            var obj = inst.get_node(data.reference);
-                            inst.create_node(obj, { "type": "folder", "text": "New Folder" }, "last", function (new_node) {
-                                try { inst.edit(new_node); } catch (ex) { setTimeout(function () { inst.edit(new_node); }, 0); }
-                            });
-                        }
-                    },
-                    "duplicaterequest": {
-                        "label": "Duplicate",
-                        "action": function (data) {
-                            var inst = $.jstree.reference(data.reference);
-                            var obj = inst.get_node(data.reference);
-                            var position = $.inArray(obj.id, inst.get_node(obj.parent).children);
-                            inst.create_node(obj.parent, { "type": "request", "data": obj.data, "text": obj.text + " - Copy" }, position + 1);
-                        }
-                    },
-                    "duplicatefolder": {
-                        "label": "Duplicate",
-                        "action": function (data) {
-                            var inst = $.jstree.reference(data.reference);
-                            var obj = inst.get_node(data.reference);
-                            var position = $.inArray(obj.id, inst.get_node(obj.parent).children);
-                            inst.create_node(obj.parent, { "type": "folder", "text": obj.text + " - Copy" }, position + 1, function (new_node) {
-                                function deep_duplicate(childNode, parentNode) {
-                                    if (childNode.children.length === 0) { return; }
-                                    for (var count = 0; count < childNode.children.length; count++) {
-                                        var objChild = inst.get_node(childNode.children[count]);
-                                        inst.create_node(parentNode, { "type": objChild.type, "data": objChild.data, "text": objChild.text });
-                                        deep_duplicate(inst.get_node(childNode.children[count]), inst.get_node(parentNode.children[count]));
-                                    }
+                            var parent = obj;
+                            while (parent && parent.type === "request") {
+                                parent = inst.get_node(parent.parent);
+                            }
+                            if (!parent || parent.id === "#") {
+                                var roots = inst.get_node("#").children;
+                                if (roots.length > 0) {
+                                    parent = inst.get_node(roots[0]);
                                 }
-                                deep_duplicate(obj, new_node);
+                            }
+                            inst.create_node(parent, { "type": "request", "text": "New Request" }, "last", function (new_node) {
+                                try { inst.edit(new_node); } catch (ex) { setTimeout(function () { inst.edit(new_node); }, 0); }
                             });
                         }
                     },
@@ -256,63 +220,19 @@ DRB.DefineOperations = function () {
                         "action": function (data) {
                             var inst = $.jstree.reference(data.reference);
                             var obj = inst.get_node(data.reference);
-                            inst.edit(obj);
+                            try { inst.edit(obj); } catch (ex) { setTimeout(function () { inst.edit(obj); }, 0); }
                         }
                     },
-                    "remove": {
+                    "delete": {
                         "label": "Delete",
                         "action": function (data) {
-                            var questionTitle = "";
-                            var questionText = "";
-                            switch (node.type) {
-                                case "collection":
-                                    questionTitle = "Delete Collection";
-                                    questionText = "Are you sure to delete the collection?<br/><u>All the folders and requests will be deleted</u>";
-                                    break;
-                                case "folder":
-                                    questionTitle = "Delete Folder";
-                                    questionText = "Are you sure to delete the folder <b>" + node.text + "</b>?<br/><u>All the folders and requests inside this folder will be deleted</u>";
-                                    break;
-                                case "request":
-                                    questionTitle = "Delete Request";
-                                    questionText = "Are you sure to delete the request <b>" + node.text + "</b>?";
-                                    break;
-                            }
-                            DRB.UI.ShowQuestion(questionTitle, questionText, null,
-                                function () {
-                                    var inst = $.jstree.reference(data.reference);
-                                    var obj = inst.get_node(data.reference);
-                                    if (inst.is_selected(obj)) { inst.delete_node(inst.get_selected()); } else { inst.delete_node(obj); }
-                                    if (node.type === "collection" && DRB.Settings.LocalStorageAvailable === true) {
-                                        localStorage.removeItem("DRB_" + DRB.Xrm.GetClientUrl());
-                                    }
-                                });
-                        }
-                    },
-                    "savestate": {
-                        "separator_before": true,
-                        "label": "Save State",
-                        "action": function (data) {
                             var inst = $.jstree.reference(data.reference);
-                            var currentNodes = inst.get_json("#");
-                            var now = new Date(); // get current DateTime
-                            var collection = {}; // create json collection
-                            collection.created_on = now.toJSON(); // current DateTime as json 
-                            collection.version = 1; // collection version                            
-                            DRB.Collection.ExportNodes(currentNodes[0], collection); // export jsTree nodes to the json collection
-                            localStorage.setItem("DRB_" + DRB.Xrm.GetClientUrl(), JSON.stringify(collection));
+                            var obj = inst.get_node(data.reference);
+                            inst.delete_node(obj);
                         }
                     }
                 };
-                // delete entries based on the node type
-                if (node.type === "collection") {
-                    delete customItems.duplicaterequest; delete customItems.duplicatefolder;
-                    if (DRB.Settings.LocalStorageAvailable !== true) {
-                        delete customItems.savestate;
-                    }
-                }
-                if (node.type === "folder") { delete customItems.duplicaterequest; delete customItems.savestate; }
-                if (node.type === "request") { delete customItems.createfolder; delete customItems.duplicatefolder; delete customItems.createrequest; delete customItems.savestate; }
+                if (node.type !== "request") { delete customItems["delete"]; }
                 return customItems;
             }
         },
@@ -322,7 +242,11 @@ DRB.DefineOperations = function () {
             "folder": { "valid_children": ["folder", "request"] }, // "folder" can have only "folder" and "request" nodes, default icon
             "request": { "icon": "jstree-file", "valid_children": [] } // "request" can't have nodes, file icon
         },
-        "plugins": ["dnd", "types", "contextmenu"] // drag and drop, node types, right click menu
+        "plugins": ["types", "contextmenu"] // node types, right click menu
+    });
+
+    $("#" + DRB.DOM.TreeView.Id).on("ready.jstree refresh.jstree", function (e, data) {
+        data.instance.open_all();
     });
 
     $("#" + DRB.DOM.TreeView.Id).on("select_node.jstree", function (e, data) {
@@ -351,10 +275,24 @@ DRB.DefineOperations = function () {
     // #region Request Type
     var container = DRB.UI.CreateWideContainerWithId(DRB.DOM.RequestType.Div.Id, DRB.DOM.RequestType.Div.Name);
     $("#" + DRB.DOM.MainContent.Id).append(container);
-    container.append(DRB.UI.CreateSpan(DRB.DOM.RequestType.Span.Id, DRB.DOM.RequestType.Span.Name));
-    container.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.RequestType.Dropdown.Id));
+    var requestControls = $("<div>", { class: "drb-request-controls" });
+    requestControls.append(DRB.UI.CreateSpan(DRB.DOM.RequestType.Span.Id, DRB.DOM.RequestType.Span.Name));
+    requestControls.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.RequestType.Dropdown.Id));
+    var btn_executeRequest = DRB.UI.CreateButton("btn_execute_request", "Execute", "btn-danger", function () {
+        DRB.GenerateCode.Start();
+        try {
+            var fetchEditor = DRB.Settings.Editors["code_fetchapi"];
+            var executeEditor = DRB.Settings.Editors[DRB.Settings.TabExecute];
+            if (DRB.Utilities.HasValue(fetchEditor) && DRB.Utilities.HasValue(executeEditor)) {
+                executeEditor.session.setValue(fetchEditor.session.getValue());
+            }
+        } catch { }
+        DRB.Logic.ExecuteCodeFromEditor();
+    });
+    requestControls.append(btn_executeRequest);
+    container.append(requestControls);
     container.append(DRB.UI.CreateSpacer());
-    DRB.UI.FillDropdown(DRB.DOM.RequestType.Dropdown.Id, DRB.DOM.RequestType.Dropdown.Name, new DRB.Models.Records(DRB.Settings.RequestTypes).ToDropdown(), false, false, false, 16);
+    DRB.UI.FillDropdown(DRB.DOM.RequestType.Dropdown.Id, DRB.DOM.RequestType.Dropdown.Name, new DRB.Models.Records(DRB.Settings.RequestTypes).ToDropdown(), false, false, false, 8);
     DRB.Logic.BindRequestType(DRB.DOM.RequestType.Dropdown.Id);
     // #endregion
 
@@ -503,6 +441,129 @@ if (typeof window !== "undefined" && typeof window.__drbApplyTheme !== "function
     };
 }
 
+// Capture injection entrypoint for WebView host
+if (typeof window !== "undefined" && typeof window.__drbReceiveCapturedRequest !== "function") {
+    window.__drbReceiveCapturedRequest = function (payload) {
+        if (!window.DRB) { return false; }
+        if (!DRB.Injection) { DRB.Injection = {}; }
+
+        if (!Array.isArray(DRB.Injection.queue)) {
+            DRB.Injection.queue = [];
+        }
+
+        if (!DRB.Injection.applyRequest) {
+            DRB.Injection.applyRequest = function (request) {
+                if (!request) { return false; }
+                if (!DRB.DOM || !DRB.DOM.TreeView) { return false; }
+                var tree = $("#" + DRB.DOM.TreeView.Id).jstree(true);
+                if (!tree) { return false; }
+
+                var roots = tree.get_node("#").children;
+                if (!roots || roots.length === 0) {
+                    DRB.Collection.CreateDefault();
+                    roots = tree.get_node("#").children;
+                }
+
+                var parent = roots.length > 0 ? tree.get_node(roots[0]) : tree.get_node("#");
+                var name = request.requestName || "New Request";
+                var nodeId = tree.create_node(parent, { type: "request", text: name }, "last");
+                var node = tree.get_node(nodeId);
+                if (!node) { return false; }
+
+                if (!node.data) { node.data = { endpoint: "webapi", requestType: "", configuration: {} }; }
+                if (!node.data.configuration) { node.data.configuration = {}; }
+
+                node.data.endpoint = "webapi";
+                node.data.requestType = (request.requestType || "").toLowerCase();
+
+                var config = node.data.configuration;
+                if (request.primaryId) { config.primaryId = request.primaryId; }
+
+                var table = null;
+                if (request.primaryEntityLogicalName && DRB.Metadata && Array.isArray(DRB.Metadata.Tables)) {
+                    table = DRB.Utilities.GetRecordById(DRB.Metadata.Tables, request.primaryEntityLogicalName);
+                }
+                if (!table && request.entitySetName && DRB.Metadata && Array.isArray(DRB.Metadata.Tables)) {
+                    for (var i = 0; i < DRB.Metadata.Tables.length; i++) {
+                        if (DRB.Metadata.Tables[i].EntitySetName === request.entitySetName) {
+                            table = DRB.Metadata.Tables[i];
+                            break;
+                        }
+                    }
+                }
+                if (table) {
+                    config.primaryEntity = { logicalName: table.LogicalName, schemaName: table.SchemaName, label: table.Name, entitySetName: table.EntitySetName };
+                } else if (request.primaryEntityLogicalName || request.entitySetName) {
+                    config.primaryEntity = {
+                        logicalName: request.primaryEntityLogicalName || "",
+                        schemaName: "",
+                        label: request.primaryEntityLogicalName || request.entitySetName || "",
+                        entitySetName: request.entitySetName || ""
+                    };
+                }
+
+                if (request.queryType) { config.queryType = request.queryType; }
+                if (request.fetchXml) { config.fetchXML = request.fetchXml; }
+
+                tree.open_node(parent);
+                tree.deselect_all();
+                tree.select_node(node);
+                return true;
+            };
+        }
+
+        if (!DRB.Injection.isReady) {
+            DRB.Injection.isReady = function () {
+                return DRB.Metadata && Array.isArray(DRB.Metadata.Tables) && DRB.Metadata.Tables.length > 0;
+            };
+        }
+
+        if (!DRB.Injection.flushQueue) {
+            DRB.Injection.flushQueue = function () {
+                if (!DRB.Injection.isReady()) { return false; }
+                while (DRB.Injection.queue.length > 0) {
+                    var next = DRB.Injection.queue.shift();
+                    DRB.Injection.applyRequest(next);
+                }
+                return true;
+            };
+        }
+
+        if (!DRB.Injection.scheduleFlush) {
+            DRB.Injection.scheduleFlush = function () {
+                if (DRB.Injection.flushTimer) { return; }
+                DRB.Injection.flushTimer = setTimeout(function () {
+                    DRB.Injection.flushTimer = null;
+                    if (!DRB.Injection.flushQueue()) {
+                        DRB.Injection.scheduleFlush();
+                    }
+                }, 300);
+            };
+        }
+
+        if (!DRB.Injection.isReady()) {
+            DRB.Injection.queue.push(payload);
+            DRB.Injection.scheduleFlush();
+            return false;
+        }
+
+        return DRB.Injection.applyRequest(payload);
+    };
+
+    if (window.chrome && chrome.webview && typeof chrome.webview.addEventListener === "function") {
+        chrome.webview.addEventListener("message", function (event) {
+            var data = event && event.data ? event.data : null;
+            if (typeof data === "string") {
+                try { data = JSON.parse(data); } catch { }
+            }
+            if (!data || !data.action) { return; }
+            if (data.action === "captured-request") {
+                window.__drbReceiveCapturedRequest(data.data || {});
+            }
+        });
+    }
+}
+
 DRB.InsertMainBodyContent = function () {
         $("#" + DRB.DOM.MainBody.Id).html(`
         <div class="drb-shell">
@@ -514,6 +575,7 @@ DRB.InsertMainBodyContent = function () {
                         <span id="${DRB.DOM.ContextSpan.Id}" class="drb-context-pill">Detecting context...</span>
                     </div>
                     <p class="drb-header__subtitle">Compose, organize, and execute Dataverse calls without leaving the debugger workspace.</p>
+                    <p class="drb-header__subtitle">RB build 2025-02-11</p>
                 </div>
                 <div class="drb-header__actions">
                     <div class="drb-header__badge">
@@ -530,11 +592,8 @@ DRB.InsertMainBodyContent = function () {
                                 <p class="drb-eyebrow">Collections</p>
                                 <h2 class="drb-card__title">Request Explorer</h2>
                             </div>
-                            <div class="dropdown drb-file-menu">
-                                <button class="btn drb-button drb-button--primary dropdown-toggle" type="button" id="btn_file" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">File</button>
-                                <div class="dropdown-menu" aria-labelledby="btn_file" id="${DRB.DOM.Collection.Menu.Id}"></div>
-                            </div>
                         </div>
+                        <div class="drb-tree-actions" id="${DRB.DOM.Collection.Menu.Id}" role="group" aria-label="Collection actions"></div>
                         <div class="drb-card__body">
                             <div id="${DRB.DOM.TreeView.Id}" class="drb-tree"></div>
                         </div>
@@ -627,6 +686,11 @@ DRB.Initialize = async function () {
     Split(["#" + DRB.DOM.Split.Menu.Id, "#" + DRB.DOM.Split.Content.Id], { sizes: [10, 90], minSize: 200, gutterSize: 5 }); // Split
     DRB.SetDefaultSettings();
     DRB.DefineOperations();
+    // Ensure a default collection exists on first load.
+    try {
+        var tree = $("#" + DRB.DOM.TreeView.Id).jstree(true);
+        if (DRB.Utilities.HasValue(tree) && tree.get_json().length === 0) { DRB.Collection.CreateDefault(); }
+    } catch (ex) { }
 
     // Tab script
     $(document).ready(function () {

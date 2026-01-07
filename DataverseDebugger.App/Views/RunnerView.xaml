@@ -9,6 +9,55 @@
     <UserControl.Resources>
         <conv:LogLinePartConverter x:Key="RunnerLogTimestampConverter" Part="Timestamp"/>
         <conv:LogLinePartConverter x:Key="RunnerLogMessageConverter" Part="Message"/>
+        <Style x:Key="RunnerTraceHeaderStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource ThemeSurfaceLightBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="RunnerTraceRowStyle" TargetType="DataGridRow">
+            <Setter Property="Background" Value="{DynamicResource ThemeSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonHoverBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+                </Trigger>
+                <MultiTrigger>
+                    <MultiTrigger.Conditions>
+                        <Condition Property="IsSelected" Value="True"/>
+                        <Condition Property="IsKeyboardFocusWithin" Value="False"/>
+                    </MultiTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonPressedBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                </MultiTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="RunnerTraceCellStyle" TargetType="DataGridCell">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsSelected}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonHoverBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+                </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsSelected}" Value="True"/>
+                        <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsKeyboardFocusWithin}" Value="False"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonPressedBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="RunnerLogTimestampStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -23,7 +72,7 @@
             <Setter Property="TextTrimming" Value="None"/>
         </Style>
     </UserControl.Resources>
-    <Border Background="White" CornerRadius="8" Padding="16" BorderBrush="#E0E0E0" BorderThickness="1">
+    <Border Background="{DynamicResource ThemeSurfaceBrush}" CornerRadius="8" Padding="16" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -35,18 +84,21 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Text="Health" Foreground="#37474F" FontSize="14" FontWeight="SemiBold" Margin="0 0 0 6"/>
-            <TextBlock Grid.Row="1" Foreground="#607D8B" Text="{Binding Vm.StatusText}" TextWrapping="Wrap" Margin="0 0 0 12"/>
-            <TextBlock Grid.Row="2" Text="Capabilities" Foreground="#37474F" FontWeight="SemiBold" Margin="0 0 0 4"/>
-            <Border Grid.Row="3" Background="#E3F2FD" CornerRadius="6" Padding="8 6" Margin="0 0 0 12">
-                <TextBlock Foreground="#1565C0" FontWeight="SemiBold" Text="{Binding Vm.CapabilitiesText}"/>
+            <TextBlock Grid.Row="0" Text="Health" Foreground="{DynamicResource ThemeTextPrimaryBrush}" FontSize="14" FontWeight="SemiBold" Margin="0 0 0 6"/>
+            <TextBlock Grid.Row="1" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="{Binding Vm.StatusText}" TextWrapping="Wrap" Margin="0 0 0 12"/>
+            <TextBlock Grid.Row="2" Text="Capabilities" Foreground="{DynamicResource ThemeTextPrimaryBrush}" FontWeight="SemiBold" Margin="0 0 0 4"/>
+            <Border Grid.Row="3" Background="{DynamicResource ThemeSurfaceLightBrush}" CornerRadius="6" Padding="8 6" Margin="0 0 0 12">
+                <TextBlock Foreground="{DynamicResource ThemeAccentBrush}" FontWeight="SemiBold" Text="{Binding Vm.CapabilitiesText}"/>
             </Border>
-            <TextBlock Grid.Row="4" Text="Runner trace:" Foreground="#37474F" FontWeight="SemiBold" Margin="0 0 0 4"/>
+            <TextBlock Grid.Row="4" Text="Runner trace:" Foreground="{DynamicResource ThemeTextPrimaryBrush}" FontWeight="SemiBold" Margin="0 0 0 4"/>
             <Border Grid.Row="5" Style="{DynamicResource ModernSectionBorder}" Padding="0 0 12 0">
                 <DataGrid x:Name="RunnerTraceGrid"
                           ItemsSource="{Binding Vm.TraceLines}"
                           AutoGenerateColumns="False"
                           HeadersVisibility="Column"
+                          ColumnHeaderStyle="{StaticResource RunnerTraceHeaderStyle}"
+                          RowStyle="{StaticResource RunnerTraceRowStyle}"
+                          CellStyle="{StaticResource RunnerTraceCellStyle}"
                           CanUserAddRows="False"
                           CanUserDeleteRows="False"
                           CanUserReorderColumns="False"
@@ -55,11 +107,13 @@
                           SelectionMode="Extended"
                           SelectionUnit="FullRow"
                           ClipboardCopyMode="ExcludeHeader"
-                          Background="Transparent"
+                          Background="{DynamicResource ThemeSurfaceBrush}"
                           BorderThickness="0"
                           GridLinesVisibility="Horizontal"
                           HorizontalGridLinesBrush="{DynamicResource ThemeBorderBrush}"
                           Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                          RowBackground="{DynamicResource ThemeSurfaceBrush}"
+                          AlternatingRowBackground="{DynamicResource ThemeSurfaceLightBrush}"
                           FontSize="11"
                           ScrollViewer.CanContentScroll="True"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -76,12 +130,15 @@
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>
-            <TextBlock Grid.Row="6" Text="Recent runner trace (all requests):" Foreground="#37474F" FontWeight="SemiBold" Margin="0 12 0 4"/>
+            <TextBlock Grid.Row="6" Text="Recent runner trace (all requests):" Foreground="{DynamicResource ThemeTextPrimaryBrush}" FontWeight="SemiBold" Margin="0 12 0 4"/>
             <Border Grid.Row="7" Style="{DynamicResource ModernSectionBorder}" Padding="0 0 12 0">
                 <DataGrid x:Name="GlobalRunnerTraceGrid"
                           ItemsSource="{Binding GlobalRunnerTrace}"
                           AutoGenerateColumns="False"
                           HeadersVisibility="Column"
+                          ColumnHeaderStyle="{StaticResource RunnerTraceHeaderStyle}"
+                          RowStyle="{StaticResource RunnerTraceRowStyle}"
+                          CellStyle="{StaticResource RunnerTraceCellStyle}"
                           CanUserAddRows="False"
                           CanUserDeleteRows="False"
                           CanUserReorderColumns="False"
@@ -90,11 +147,13 @@
                           SelectionMode="Extended"
                           SelectionUnit="FullRow"
                           ClipboardCopyMode="ExcludeHeader"
-                          Background="Transparent"
+                          Background="{DynamicResource ThemeSurfaceBrush}"
                           BorderThickness="0"
                           GridLinesVisibility="Horizontal"
                           HorizontalGridLinesBrush="{DynamicResource ThemeBorderBrush}"
                           Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                          RowBackground="{DynamicResource ThemeSurfaceBrush}"
+                          AlternatingRowBackground="{DynamicResource ThemeSurfaceLightBrush}"
                           FontSize="11"
                           ScrollViewer.CanContentScroll="True"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"

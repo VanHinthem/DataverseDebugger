@@ -17,6 +17,55 @@
         </ObjectDataProvider>
         <conv:LogLinePartConverter x:Key="LogTimestampConverter" Part="Timestamp"/>
         <conv:LogLinePartConverter x:Key="LogMessageConverter" Part="Message"/>
+        <Style x:Key="SettingsLogHeaderStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource ThemeSurfaceLightBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="SettingsLogRowStyle" TargetType="DataGridRow">
+            <Setter Property="Background" Value="{DynamicResource ThemeSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonHoverBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+                </Trigger>
+                <MultiTrigger>
+                    <MultiTrigger.Conditions>
+                        <Condition Property="IsSelected" Value="True"/>
+                        <Condition Property="IsKeyboardFocusWithin" Value="False"/>
+                    </MultiTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonPressedBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                </MultiTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="SettingsLogCellStyle" TargetType="DataGridCell">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsSelected}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonHoverBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+                </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsSelected}" Value="True"/>
+                        <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsKeyboardFocusWithin}" Value="False"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonPressedBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="LogGridTimestampStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -42,10 +91,7 @@
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Dark mode" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="0 0 12 0" FontSize="12"/>
                             <ToggleButton Style="{DynamicResource ModernToggleSwitch}" 
-                                          IsChecked="{Binding Appearance.IsDarkMode, Mode=TwoWay}"
-                                          IsEnabled="False"/>
-                            <TextBlock Text="Coming soon - dark theme needs refinement" 
-                                       Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="11" FontStyle="Italic" VerticalAlignment="Center" Margin="12 0 0 0"/>
+                                          IsChecked="{Binding Appearance.IsDarkMode, Mode=TwoWay}"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -124,6 +170,9 @@
                     <DataGrid ItemsSource="{Binding Source={x:Static services:LogService.Entries}}"
                               AutoGenerateColumns="False"
                               HeadersVisibility="Column"
+                              ColumnHeaderStyle="{StaticResource SettingsLogHeaderStyle}"
+                              RowStyle="{StaticResource SettingsLogRowStyle}"
+                              CellStyle="{StaticResource SettingsLogCellStyle}"
                               CanUserAddRows="False"
                               CanUserDeleteRows="False"
                               CanUserReorderColumns="False"
@@ -132,11 +181,13 @@
                               SelectionMode="Extended"
                               SelectionUnit="FullRow"
                               ClipboardCopyMode="ExcludeHeader"
-                              Background="Transparent"
+                              Background="{DynamicResource ThemeSurfaceBrush}"
                               BorderThickness="0"
                               GridLinesVisibility="Horizontal"
                               HorizontalGridLinesBrush="{DynamicResource ThemeBorderBrush}"
                               Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                              RowBackground="{DynamicResource ThemeSurfaceBrush}"
+                              AlternatingRowBackground="{DynamicResource ThemeSurfaceLightBrush}"
                               MinHeight="140"
                               MaxHeight="280"
                               FontSize="11"

@@ -169,7 +169,7 @@ DRB.UI.DisplayDialog = function (title, message, className, size, okCallBack, as
         properties.closeButton = true;
         if (!DRB.Utilities.HasValue(confirmLabel)) { confirmLabel = "Yes"; }
         if (!DRB.Utilities.HasValue(cancelLabel)) { cancelLabel = "No"; }
-        properties.buttons = { cancel: { label: cancelLabel }, confirm: { label: confirmLabel, className: className } };
+        properties.buttons = { cancel: { label: cancelLabel, className: "btn-secondary" }, confirm: { label: confirmLabel, className: className } };
         properties.callback = function (result) { if (result === true) { okCallBack(); } };
         bootbox.confirm(properties);
     } else {

@@ -1,4 +1,4 @@
-<UserControl x:Class="DataverseDebugger.App.Views.RestBuilderView"
+﻿<UserControl x:Class="DataverseDebugger.App.Views.RestBuilderView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -16,18 +16,18 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="8 8 8 8">
+        <Grid Grid.Row="0" Margin="0 0 0 12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8 0 0 0">
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                 <Button x:Name="RefreshButton" Style="{DynamicResource ModernToolbarButton}" Width="80" Click="OnRefreshClick" IsEnabled="False" Margin="0 0 8 0">
-                    <TextBlock Text="⟳ Reload"/>
+                    <TextBlock Text="Reload"/>
                 </Button>
                 <Button x:Name="DevToolsButton" Style="{DynamicResource ModernToolbarButton}" Width="90" Click="OnDevToolsClick" IsEnabled="False" Margin="0 0 12 0">
-                    <TextBlock Text="🔧 DevTools"/>
+                    <TextBlock Text="DevTools"/>
                 </Button>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
                     <TextBlock Text="Capture" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
@@ -44,9 +44,9 @@
             </StackPanel>
         </Grid>
 
-        <Border Grid.Row="1" Background="{DynamicResource ThemeSurfaceBrush}" CornerRadius="8" Padding="0" 
+        <Border Grid.Row="1" Background="{DynamicResource ThemeSurfaceBrush}" CornerRadius="8" Padding="12" 
                 BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1">
-            <Grid x:Name="WebViewContainer"/>
+            <Grid x:Name="WebViewContainer" Background="{DynamicResource ThemeSurfaceBrush}"/>
         </Border>
     </Grid>
 </UserControl>

@@ -391,7 +391,23 @@ DRB.Logic.CompleteInitialize = function () {
 
     // retrieve tables
     DRB.UI.ShowLoading("Retrieving Tables and Users...");
-    setTimeout(function () {
+    var retrieveAttempts = 0;
+    var retrieveTables = function () {
+        var clientUrl = DRB.Xrm.GetClientUrl();
+        var needsToken = DRB.Xrm.IsXTBMode() || DRB.Xrm.IsBEMode() || DRB.Xrm.IsJWTMode() || DRB.Xrm.IsDVDTMode();
+        var token = DRB.Xrm.GetCurrentAccessToken();
+
+        if (!DRB.Utilities.HasValue(clientUrl) || (needsToken && !DRB.Utilities.HasValue(token))) {
+            retrieveAttempts++;
+            if (retrieveAttempts <= 5) {
+                setTimeout(retrieveTables, DRB.Settings.TimeoutDelay);
+                return;
+            }
+            DRB.UI.HideLoading();
+            DRB.UI.ShowError("DRB.Common.RetrieveTables Error", "Missing connection context. Please reopen the tab.");
+            return;
+        }
+
         DRB.Common.RetrieveTables()
             .done(function (data) {
                 DRB.Metadata.Tables = DRB.Common.MapTables(data, "Name");
@@ -422,8 +438,9 @@ DRB.Logic.CompleteInitialize = function () {
                                 }
                             }
                         }
-                        // load nodes
-                        DRB.Collection.LoadNodes(currentNodes);
+                        // load nodes (or create a default collection when none exists)
+                        if (currentNodes.length === 0) { DRB.Collection.CreateDefault(); }
+                        else { DRB.Collection.LoadNodes(currentNodes); }
 
                         // Set Tabs Warnings
                         var warningXrmWebApi = "";
@@ -492,7 +509,8 @@ DRB.Logic.CompleteInitialize = function () {
                     .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveUsers Error", DRB.Common.GetErrorMessage(xhr)); });
             })
             .fail(function (xhr) { DRB.UI.ShowError("DRB.Common.RetrieveTables Error", DRB.Common.GetErrorMessage(xhr)); });
-    }, DRB.Settings.TimeoutDelay);
+    };
+    setTimeout(retrieveTables, DRB.Settings.TimeoutDelay);
 }
 
 /**
@@ -560,7 +578,7 @@ DRB.Logic.BindRequestType = function (id) {
 
         // set default values if a property is missing
         if (!DRB.Utilities.HasValue(nodeConfiguration.version)) { nodeConfiguration.version = DRB.Settings.Versions[DRB.Settings.Versions.length - 1].Id; } // All except Retrieve NextLink
-        if (!DRB.Utilities.HasValue(nodeConfiguration.async)) { nodeConfiguration.async = true; } // All
+        if (!DRB.Utilities.HasValue(nodeConfiguration.async)) { nodeConfiguration.async = false; } // All
         if (!DRB.Utilities.HasValue(nodeConfiguration.tokenHeader)) { nodeConfiguration.tokenHeader = false; } // All
         if (!DRB.Utilities.HasValue(nodeConfiguration.impersonate)) { nodeConfiguration.impersonate = false; } // All
         if (!DRB.Utilities.HasValue(nodeConfiguration.impersonateType)) { nodeConfiguration.impersonateType = "mscrmcallerid"; } // All

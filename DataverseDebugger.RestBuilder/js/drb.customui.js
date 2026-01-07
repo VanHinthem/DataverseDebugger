@@ -10,40 +10,49 @@ DRB.CustomUI.AddSpacer = function () {
  * Add Version
  */
 DRB.CustomUI.AddVersion = function () {
-    $("#" + DRB.DOM.ConfigureContent.Id).append(DRB.UI.CreateSpan(DRB.DOM.Version.Span.Id, DRB.DOM.Version.Span.Name));
-    $("#" + DRB.DOM.ConfigureContent.Id).append(DRB.UI.CreateSimpleDropdown(DRB.DOM.Version.Dropdown.Id));
+    var container = DRB.UI.CreateEmptyDiv();
+    container.append(DRB.UI.CreateSpan(DRB.DOM.Version.Span.Id, DRB.DOM.Version.Span.Name));
+    container.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.Version.Dropdown.Id));
+    $("#" + DRB.DOM.ConfigureContent.Id).append(container);
     DRB.UI.FillDropdown(DRB.DOM.Version.Dropdown.Id, DRB.DOM.Version.Dropdown.Name, new DRB.Models.Records(DRB.Settings.Versions).ToDropdown());
     DRB.Logic.BindPropertyValue(DRB.DOM.Version.Dropdown.Id, "version");
     var selectedVersion = DRB.Settings.Versions[DRB.Settings.Versions.length - 1].Id;
     var versionExists = DRB.Utilities.GetRecordById(DRB.Settings.Versions, DRB.Metadata.CurrentNode.data.configuration.version);
     if (DRB.Utilities.HasValue(versionExists)) { selectedVersion = versionExists.Id; }
     $("#" + DRB.DOM.Version.Dropdown.Id).val(selectedVersion).change();
+    container.hide();
 }
 
 /**
  * Add Process
  */
 DRB.CustomUI.AddProcess = function () {
-    $("#" + DRB.DOM.ConfigureContent.Id).append(DRB.UI.CreateSpan(DRB.DOM.Process.Span.Id, DRB.DOM.Process.Span.Name));
-    $("#" + DRB.DOM.ConfigureContent.Id).append(DRB.UI.CreateSimpleDropdown(DRB.DOM.Process.Dropdown.Id));
+    var container = DRB.UI.CreateEmptyDiv();
+    container.append(DRB.UI.CreateSpan(DRB.DOM.Process.Span.Id, DRB.DOM.Process.Span.Name));
+    container.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.Process.Dropdown.Id));
+    $("#" + DRB.DOM.ConfigureContent.Id).append(container);
     DRB.UI.FillDropdown(DRB.DOM.Process.Dropdown.Id, DRB.DOM.Process.Dropdown.Name, new DRB.Models.Records(DRB.Settings.OptionsAyncSync).ToDropdown());
     DRB.Logic.BindPropertyBooleanValue(DRB.DOM.Process.Dropdown.Id, "async");
     var processValue = "yes";
     if (DRB.Metadata.CurrentNode.data.configuration.async === false) { processValue = "no"; }
     $("#" + DRB.DOM.Process.Dropdown.Id).val(processValue).change();
+    container.hide();
 }
 
 /**
  * Add Token Header
  */
 DRB.CustomUI.AddTokenHeader = function () {
-    $("#" + DRB.DOM.ConfigureContent.Id).append(DRB.UI.CreateSpan(DRB.DOM.TokenHeader.Span.Id, DRB.DOM.TokenHeader.Span.Name));
-    $("#" + DRB.DOM.ConfigureContent.Id).append(DRB.UI.CreateSimpleDropdown(DRB.DOM.TokenHeader.Dropdown.Id));
+    var container = DRB.UI.CreateEmptyDiv();
+    container.append(DRB.UI.CreateSpan(DRB.DOM.TokenHeader.Span.Id, DRB.DOM.TokenHeader.Span.Name));
+    container.append(DRB.UI.CreateSimpleDropdown(DRB.DOM.TokenHeader.Dropdown.Id));
+    $("#" + DRB.DOM.ConfigureContent.Id).append(container);
     DRB.UI.FillDropdown(DRB.DOM.TokenHeader.Dropdown.Id, DRB.DOM.TokenHeader.Dropdown.Name, new DRB.Models.Records(DRB.Settings.OptionsYesNo).ToDropdown());
     DRB.Logic.BindPropertyBooleanValue(DRB.DOM.TokenHeader.Dropdown.Id, "tokenHeader");
     var tokenHeaderValue = "no";
     if (DRB.Metadata.CurrentNode.data.configuration.tokenHeader === true) { tokenHeaderValue = "yes"; }
     $("#" + DRB.DOM.TokenHeader.Dropdown.Id).val(tokenHeaderValue).change();
+    container.hide();
 }
 
 /**

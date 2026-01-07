@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
     <!-- Update this value to version all projects (major.minor.patch[-prerelease]). -->
-    <DataverseProductVersion>1.0.1</DataverseProductVersion>
+    <DataverseProductVersion>1.0.2</DataverseProductVersion>
   </PropertyGroup>
 </Project>

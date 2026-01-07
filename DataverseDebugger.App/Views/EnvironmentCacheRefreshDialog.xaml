@@ -6,26 +6,34 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Loaded="OnLoaded"
-        MinWidth="540">
-    <Grid Margin="18">
+        MinWidth="540"
+        Background="{DynamicResource ThemeBackgroundBrush}">
+    <Border Margin="12"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="12">
         <StackPanel>
             <TextBlock x:Name="HeaderText"
                        Text="Refreshing..."
                        FontSize="16"
                        FontWeight="SemiBold"
-                       Foreground="#263238"/>
+                       Foreground="{DynamicResource ThemeTextPrimaryBrush}"/>
             <TextBlock x:Name="DescriptionText"
                        Margin="0 4 0 12"
                        Text="Updating cached data for this environment."
-                       Foreground="#546E7A"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}"
                        TextWrapping="Wrap"/>
             <ProgressBar x:Name="ProgressBar"
                          Height="6"
                          IsIndeterminate="True"
                          Visibility="Collapsed"
-                         Margin="0 0 0 12"/>
+                         Margin="0 0 0 12"
+                         Foreground="{DynamicResource ThemeAccentBrush}"
+                         Background="{DynamicResource ThemeSurfaceLightBrush}"/>
             <TextBlock x:Name="StatusText"
-                       Foreground="#37474F"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}"
                        Text="Starting..."
                        TextWrapping="Wrap"/>
             <StackPanel Orientation="Horizontal"
@@ -35,9 +43,10 @@
                         Content="Close"
                         Width="90"
                         Height="28"
+                        Style="{DynamicResource ModernToolbarButton}"
                         Visibility="Collapsed"
                         Click="OnCloseClick"/>
             </StackPanel>
         </StackPanel>
-    </Grid>
+    </Border>
 </Window>

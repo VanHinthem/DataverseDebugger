@@ -67,6 +67,8 @@
                 <!-- Tools dropdown button -->
                 <Menu Grid.Column="6" Background="Transparent" Margin="4 0 0 0" VerticalAlignment="Center">
                     <MenuItem x:Name="ToolsMenu" Header="🛠 Tools" Style="{DynamicResource ModernMenuButton}">
+                        <MenuItem x:Name="ToggleDarkModeMenuItem" Header="🌙 Dark Mode" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnToggleDarkModeClick" ToolTip="Toggle dark mode flag in the current URL"/>
+                        <Separator/>
                         <MenuItem Header="📋 Show Logical Names" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnShowLogicalNamesClick" ToolTip="Shows logical names for all fields on the form"/>
                         <MenuItem Header="🔄 Clear Logical Names" Style="{DynamicResource ModernDropdownMenuItem}" Click="OnClearLogicalNamesClick" ToolTip="Removes logical name labels from the form"/>
                         <Separator/>

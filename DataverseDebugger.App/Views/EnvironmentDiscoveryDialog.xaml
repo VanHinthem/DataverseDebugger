@@ -5,8 +5,15 @@
         SizeToContent="WidthAndHeight"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
-        MinWidth="540">
-    <Grid Margin="18">
+        MinWidth="540"
+        Background="{DynamicResource ThemeBackgroundBrush}">
+    <Border Margin="12"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="12">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -19,7 +26,7 @@
 
         <StackPanel Grid.Row="0">
             <TextBlock Text="Sign in with your Dataverse account and select an environment to add." 
-                       Foreground="#37474F" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                       Foreground="{DynamicResource ThemeTextPrimaryBrush}" FontWeight="SemiBold" TextWrapping="Wrap"/>
         </StackPanel>
 
         <StackPanel Grid.Row="1" Margin="0 12 0 12">
@@ -28,6 +35,7 @@
                     Content="✅ Use saved sign-in"
                     Width="180"
                     Height="30"
+                    Style="{DynamicResource ModernToolbarButton}"
                     Margin="0 0 12 0"
                     HorizontalAlignment="Left"
                     Visibility="Collapsed"
@@ -36,27 +44,34 @@
                     Content="🔐 Sign in"
                     Width="140"
                     Height="30"
+                    Style="{DynamicResource ModernToolbarButton}"
                     HorizontalAlignment="Left"
                     Click="OnSignInClick"/>
             </StackPanel>
         </StackPanel>
         <StackPanel Grid.Row="2" Margin="0 0 0 12">
-            <TextBlock x:Name="StatusText" Margin="0 6 0 0" Foreground="#607D8B"/>
+            <TextBlock x:Name="StatusText" Margin="0 6 0 0" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
             <TextBlock x:Name="AuthStatusText"
             Margin="0 12 0 12"
             VerticalAlignment="Center"
-            Foreground="#C62828"
+            Foreground="{DynamicResource ThemeErrorBrush}"
             FontWeight="SemiBold"
             Text="Not signed in"/>
         </StackPanel>
         <StackPanel Grid.Row="3" Margin="0 0 0 12" Visibility="Collapsed">
-            <ProgressBar x:Name="ProgressBar" Height="6" IsIndeterminate="True" Visibility="Collapsed"/>
+            <ProgressBar x:Name="ProgressBar"
+                         Height="6"
+                         IsIndeterminate="True"
+                         Visibility="Collapsed"
+                         Foreground="{DynamicResource ThemeAccentBrush}"
+                         Background="{DynamicResource ThemeSurfaceLightBrush}"/>
         </StackPanel>
 
         <StackPanel x:Name="FilterPanel" Grid.Row="4" Orientation="Horizontal" Margin="0 0 0 12" Visibility="Collapsed">
-            <TextBlock Text="Filter by URL:" VerticalAlignment="Center" Foreground="#546E7A" Margin="0 0 8 0"/>
+            <TextBlock Text="Filter by URL:" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="0 0 8 0"/>
             <TextBox x:Name="UrlFilterBox"
                      Width="360"
+                     Style="{DynamicResource ModernTextBox}"
                      TextChanged="OnFilterTextChanged"
                      ToolTip="Type part of the environment URL to filter the list."/>
         </StackPanel>
@@ -65,6 +80,10 @@
             Grid.Row="5"
             Width="500"
             Height="220"
+            Background="{DynamicResource ThemeSurfaceLightBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}"
+            BorderThickness="1"
+            Foreground="{DynamicResource ThemeTextPrimaryBrush}"
             Visibility="Collapsed"
             SelectionChanged="OnInstanceSelectionChanged">
         <ListBox.ItemTemplate>
@@ -87,16 +106,16 @@
                         <TextBlock Grid.Column="0"
                                 Text="{Binding FriendlyName}"
                                 FontWeight="SemiBold"
-                                Foreground="#263238"/>
+                                Foreground="{DynamicResource ThemeTextPrimaryBrush}"/>
 
                         <TextBlock Grid.Column="1"
                                 Text=" - "
-                                Foreground="#90A4AE"
+                                Foreground="{DynamicResource ThemeTextMutedBrush}"
                                 Margin="4 0"/>
 
                         <TextBlock Grid.Column="2"
                                 Text="{Binding WebUrl}"
-                                Foreground="#546E7A"
+                                Foreground="{DynamicResource ThemeTextSecondaryBrush}"
                                 FontSize="12"
                                 TextTrimming="CharacterEllipsis"/>
                     </Grid>
@@ -104,7 +123,7 @@
                     <!-- Divider -->
                     <Border Grid.Row="1"
                             Height="1"
-                            Background="#ECEFF1"
+                            Background="{DynamicResource ThemeBorderBrush}"
                             Margin="8 0"/>
                 </Grid>
             </DataTemplate>
@@ -114,21 +133,23 @@
 
         <StackPanel x:Name="DetailsPanel" Grid.Row="6" Visibility="Visible" Margin="0 12 0 0">
             <StackPanel x:Name="ManualUrlPanel" Orientation="Horizontal" Margin="0 0 0 6">
-                <TextBlock Text="Environment URL:" Width="110" VerticalAlignment="Center" Foreground="#546E7A"/>
+                <TextBlock Text="Environment URL:" Width="110" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                 <TextBox x:Name="ManualUrlBox"
                          Width="320"
+                         Style="{DynamicResource ModernTextBox}"
                          ToolTip="Paste the Dataverse environment URL to add it directly."
                          TextChanged="OnManualUrlTextChanged"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0 0 0 6">
-                <TextBlock Text="Display name:" Width="110" VerticalAlignment="Center" Foreground="#546E7A"/>
-                <TextBox x:Name="DisplayNameBox" Width="320" TextChanged="OnDisplayNameTextChanged"/>
+                <TextBlock Text="Display name:" Width="110" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                <TextBox x:Name="DisplayNameBox" Width="320" Style="{DynamicResource ModernTextBox}" TextChanged="OnDisplayNameTextChanged"/>
             </StackPanel>
-            <TextBlock x:Name="SelectedUrlText" Foreground="#607D8B" FontSize="12" Visibility="Collapsed"/>
+            <TextBlock x:Name="SelectedUrlText" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="12" Visibility="Collapsed"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0 12 0 0">
-                <Button x:Name="AddButton" Content="Add environment" Width="150" Height="30" Margin="0 0 8 0" Click="OnAddEnvironmentClick" IsEnabled="True"/>
-                <Button Content="Cancel" Width="90" Height="30" IsCancel="True"/>
+                <Button x:Name="AddButton" Content="Add environment" Width="150" Height="30" Margin="0 0 8 0" Style="{DynamicResource PrimaryActionButton}" Click="OnAddEnvironmentClick" IsEnabled="True"/>
+                <Button Content="Cancel" Width="90" Height="30" Style="{DynamicResource ModernToolbarButton}" IsCancel="True"/>
             </StackPanel>
         </StackPanel>
     </Grid>
+    </Border>
 </Window>

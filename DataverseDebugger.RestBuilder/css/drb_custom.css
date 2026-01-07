@@ -22,9 +22,9 @@
     --drb-warning: #fb8c00;
     --drb-danger: #f44336;
     --drb-font: 'Segoe UI', 'Space Grotesk', sans-serif;
-    --drb-code-bg: #1f1f1f;
+    --drb-code-bg: #2b2b2b;
     --drb-code-gutter: #252526;
-    --drb-code-text: #ffffff;
+    --drb-code-text: #d8d8d8;
     --drb-code-cursor: #ffffff;
     --drb-code-selection: rgba(0, 120, 212, 0.35);
     --drb-radius-lg: 8px;
@@ -1332,6 +1332,21 @@ body[data-drb-theme="light"] .vakata-context .vakata-context-separator > a:hover
     color: var(--drb-code-text) !important;
 }
 
+.code_editor.ace_editor {
+    font-family: "Cascadia Mono", "Consolas", "SFMono-Regular", "Menlo", "Monaco", "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.code_editor .ace_line,
+.code_editor .ace_gutter {
+    line-height: 18px;
+}
+
+.code_editor .ace_gutter {
+    font-size: 11px;
+}
+
 .code_editor .ace_gutter,
 .code_editor .ace_gutter-active-line {
     background: var(--drb-code-gutter) !important;
@@ -1353,6 +1368,13 @@ body[data-drb-theme="light"] .code_editor .ace_marker-layer .ace_active-line {
 
 .code_editor .ace_cursor {
     color: var(--drb-code-cursor) !important;
+}
+
+body:not(.drb-theme-light):not([data-drb-theme="light"]) .code_editor .ace_tag,
+body:not(.drb-theme-light):not([data-drb-theme="light"]) .code_editor .ace_meta.ace_tag,
+body:not(.drb-theme-light):not([data-drb-theme="light"]) .code_editor .ace_entity.ace_name,
+body:not(.drb-theme-light):not([data-drb-theme="light"]) .code_editor .ace_keyword {
+    color: #8fb8ff !important;
 }
 /* #endregion */
 

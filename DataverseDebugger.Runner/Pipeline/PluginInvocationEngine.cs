@@ -9,6 +9,7 @@ using DataverseDebugger.Protocol;
 using DataverseDebugger.Runner.Abstractions;
 using DataverseDebugger.Runner.Configuration;
 using DataverseDebugger.Runner.Conversion.Utils;
+using DataverseDebugger.Runner.Services.Offline;
 using Microsoft.Extensions.Logging;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
@@ -48,6 +49,7 @@ namespace DataverseDebugger.Runner.Pipeline
             request = null;
             List<string>? trace = null;
             ServiceClient? serviceClient = null;
+            OfflineOrganizationService? offlineService = null;
             try
             {
                 if (string.IsNullOrWhiteSpace(payload))
@@ -79,14 +81,6 @@ namespace DataverseDebugger.Runner.Pipeline
                         "Online",
                         "LiveWrites",
                         $"Set AllowLiveWrites=true ({RunnerExecutionOptions.AllowLiveWritesEnvVar}).");
-                }
-
-                if (resolvedMode == ExecutionMode.Offline)
-                {
-                    throw new RunnerNotSupportedException(
-                        "Offline",
-                        "PluginInvocation",
-                        "Offline mode is not supported yet.");
                 }
 
                 var requestAssembly = request.Assembly;
@@ -296,32 +290,45 @@ namespace DataverseDebugger.Runner.Pipeline
                         conversionContext = resolvedContext;
                     }
 
-                    var writeMode = resolvedMode == ExecutionMode.Online
-                        ? RunnerWriteMode.LiveWrites
-                        : RunnerWriteMode.FakeWrites;
+                    var attributeResolver = resolvedMode == ExecutionMode.Offline
+                        ? null
+                        : new AttributeMetadataResolver(
+                            conversionContext?.MetadataCache,
+                            environment,
+                            request.AccessToken,
+                            _httpClient,
+                            trace);
 
-                    var attributeResolver = new AttributeMetadataResolver(
-                        conversionContext?.MetadataCache,
-                        environment,
-                        request.AccessToken,
-                        _httpClient,
-                        trace);
-                    var orgService = new RunnerOrganizationService(
-                        line => trace.Add(line),
-                        _httpClient,
-                        effectiveOrgUrl,
-                        request.AccessToken,
-                        writeMode,
-                        logicalName =>
-                        {
-                            var entity = conversionContext?.MetadataCache?.GetEntityFromLogicalName(logicalName);
-                            return entity?.EntitySetName;
-                        },
-                        attributeResolver,
-                        serviceClient);
-                    trace.Add($"OrgService write mode: {writeMode}");
+                    IOrganizationService orgService;
+                    if (resolvedMode == ExecutionMode.Offline)
+                    {
+                        offlineService = new OfflineOrganizationService();
+                        orgService = offlineService;
+                    }
+                    else
+                    {
+                        var writeMode = resolvedMode == ExecutionMode.Online
+                            ? RunnerWriteMode.LiveWrites
+                            : RunnerWriteMode.FakeWrites;
+                        orgService = new RunnerOrganizationService(
+                            line => trace.Add(line),
+                            _httpClient,
+                            effectiveOrgUrl,
+                            request.AccessToken,
+                            writeMode,
+                            logicalName =>
+                            {
+                                var entity = conversionContext?.MetadataCache?.GetEntityFromLogicalName(logicalName);
+                                return entity?.EntitySetName;
+                            },
+                            attributeResolver,
+                            serviceClient);
+                        trace.Add($"OrgService write mode: {writeMode}");
+                    }
+
                     var orgFactory = new StubOrganizationServiceFactory(orgService);
                     var primaryName = string.IsNullOrWhiteSpace(request.PrimaryEntityName) ? "entity" : request.PrimaryEntityName;
+                    var isOffline = resolvedMode == ExecutionMode.Offline;
                     var context = new StubPluginExecutionContext
                     {
                         MessageName = string.IsNullOrWhiteSpace(request.MessageName) ? "Create" : request.MessageName,
@@ -330,18 +337,18 @@ namespace DataverseDebugger.Runner.Pipeline
                         Stage = request.Stage <= 0 ? 40 : request.Stage,
                         Mode = request.Mode,
                         Depth = 1,
-                        OrganizationId = Guid.NewGuid(),
+                        OrganizationId = isOffline ? OfflineOrganizationService.DefaultOrganizationId : Guid.NewGuid(),
                         OrganizationName = "DataverseDebugger",
-                        UserId = Guid.NewGuid(),
-                        InitiatingUserId = Guid.NewGuid(),
-                        BusinessUnitId = Guid.NewGuid(),
+                        UserId = isOffline ? OfflineOrganizationService.DefaultUserId : Guid.NewGuid(),
+                        InitiatingUserId = isOffline ? OfflineOrganizationService.DefaultUserId : Guid.NewGuid(),
+                        BusinessUnitId = isOffline ? OfflineOrganizationService.DefaultBusinessUnitId : Guid.NewGuid(),
                         CorrelationId = Guid.NewGuid(),
                         OperationId = Guid.NewGuid(),
                         OperationCreatedOn = DateTime.UtcNow,
                         RequestId = Guid.NewGuid(),
                         IsInTransaction = false,
-                        IsExecutingOffline = false,
-                        IsOfflinePlayback = false
+                        IsExecutingOffline = isOffline,
+                        IsOfflinePlayback = isOffline
                     };
 
                     var populatedFromHttp = RunnerPipeServer.TryPopulateContextFromHttp(request, context, trace);
@@ -411,6 +418,24 @@ namespace DataverseDebugger.Runner.Pipeline
                         if (postImage != null)
                         {
                             context.PostEntityImages["PostImage"] = postImage;
+                        }
+                    }
+
+                    if (offlineService != null)
+                    {
+                        if (context.InputParameters.Contains("Target") && context.InputParameters["Target"] is Entity target)
+                        {
+                            offlineService.SeedEntity(target);
+                        }
+
+                        foreach (var image in context.PreEntityImages.Values)
+                        {
+                            offlineService.SeedEntity(image);
+                        }
+
+                        foreach (var image in context.PostEntityImages.Values)
+                        {
+                            offlineService.SeedEntity(image);
                         }
                     }
 

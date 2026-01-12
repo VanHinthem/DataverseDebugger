@@ -125,6 +125,9 @@ namespace DataverseDebugger.Protocol
         /// <summary>Write mode for the organization service.</summary>
         public string? WriteMode { get; set; }
 
+        /// <summary>Execution mode for the organization service.</summary>
+        public string? ExecutionMode { get; set; }
+
         /// <summary>Original HTTP request that triggered this plugin.</summary>
         public InterceptedHttpRequest? HttpRequest { get; set; }
 

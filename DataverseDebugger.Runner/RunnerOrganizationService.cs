@@ -173,7 +173,7 @@ namespace DataverseDebugger.Runner
                 overlayApplied = overlayEntities.Count > 0;
             }
 
-            if (!HasLiveAccess())
+            if (!HasLiveReadAccess())
             {
                 _log("[OrgService] RetrieveMultiple live read unavailable; returning overlay only.");
                 return results;
@@ -275,7 +275,7 @@ namespace DataverseDebugger.Runner
 
         private OrganizationResponse ExecuteWhoAmI()
         {
-            if (!HasLiveAccess())
+            if (!HasLiveReadAccess())
             {
                 _log("[OrgService] WhoAmI live read unavailable; returning empty response.");
                 return new OrganizationResponse();
@@ -365,7 +365,7 @@ namespace DataverseDebugger.Runner
 
         private void EnsureLiveRead()
         {
-            if (!HasLiveAccess())
+            if (!HasLiveReadAccess())
             {
                 throw new InvalidOperationException("Live read requires Org URL and access token.");
             }
@@ -373,13 +373,24 @@ namespace DataverseDebugger.Runner
 
         private void EnsureLiveWrite()
         {
-            if (!HasLiveAccess())
+            if (!HasLiveWriteAccess())
             {
-                throw new InvalidOperationException("Live write requires Org URL and access token.");
+                throw new InvalidOperationException("Live write requires ServiceClient.");
             }
         }
 
-        private bool HasLiveAccess()
+        private bool HasLiveReadAccess()
+        {
+            if (_liveService != null)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(_apiBaseUrl)
+                && !string.IsNullOrWhiteSpace(_accessToken);
+        }
+
+        private bool HasLiveWriteAccess()
         {
             return _liveService != null;
         }

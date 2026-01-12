@@ -96,10 +96,10 @@ namespace DataverseDebugger.Runner.Pipeline
                     ? environment?.OrgUrl
                     : request.OrgUrl;
 
-                if (resolvedMode == ExecutionMode.Online || resolvedMode == ExecutionMode.Hybrid)
+                if (resolvedMode == ExecutionMode.Online)
                 {
                     serviceClient = TryCreateServiceClient(effectiveOrgUrl, request.AccessToken);
-                    if (resolvedMode == ExecutionMode.Online && serviceClient == null)
+                    if (serviceClient == null)
                     {
                         throw new RunnerNotSupportedException(
                             "Online",

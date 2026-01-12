@@ -9,6 +9,7 @@ using DataverseDebugger.Protocol;
 using DataverseDebugger.Runner.Abstractions;
 using DataverseDebugger.Runner.Configuration;
 using DataverseDebugger.Runner.Conversion.Utils;
+using DataverseDebugger.Runner.Services.Hybrid;
 using DataverseDebugger.Runner.Services.Offline;
 using Microsoft.Extensions.Logging;
 using Microsoft.PowerPlatform.Dataverse.Client;
@@ -49,6 +50,7 @@ namespace DataverseDebugger.Runner.Pipeline
             request = null;
             List<string>? trace = null;
             ServiceClient? serviceClient = null;
+            IOrganizationService? liveService = null;
             OfflineOrganizationService? offlineService = null;
             try
             {
@@ -90,10 +92,13 @@ namespace DataverseDebugger.Runner.Pipeline
                     ? environment?.OrgUrl
                     : request.OrgUrl;
 
-                if (resolvedMode == ExecutionMode.Online)
+                if (resolvedMode == ExecutionMode.Online || resolvedMode == ExecutionMode.Hybrid)
                 {
-                    serviceClient = TryCreateServiceClient(effectiveOrgUrl, request.AccessToken);
-                    if (serviceClient == null)
+                    liveService = ServiceClientOrganizationServiceFactory.TryCreate(
+                        effectiveOrgUrl,
+                        request.AccessToken,
+                        out serviceClient);
+                    if (resolvedMode == ExecutionMode.Online && liveService == null)
                     {
                         throw new RunnerNotSupportedException(
                             "Online",
@@ -304,6 +309,10 @@ namespace DataverseDebugger.Runner.Pipeline
                     {
                         offlineService = new OfflineOrganizationService();
                         orgService = offlineService;
+                    }
+                    else if (resolvedMode == ExecutionMode.Hybrid)
+                    {
+                        orgService = new HybridOrganizationService(liveService, line => trace.Add(line));
                     }
                     else
                     {
@@ -537,23 +546,5 @@ namespace DataverseDebugger.Runner.Pipeline
             }
         }
 
-        private static ServiceClient? TryCreateServiceClient(string? orgUrl, string? accessToken)
-        {
-            if (string.IsNullOrWhiteSpace(orgUrl) || string.IsNullOrWhiteSpace(accessToken))
-            {
-                return null;
-            }
-
-            try
-            {
-                // Uses the caller-provided access token; token refresh is not implemented here.
-                var connectionString = $"AuthType=OAuth;Url={orgUrl};AccessToken={accessToken};";
-                return new ServiceClient(connectionString);
-            }
-            catch
-            {
-                return null;
-            }
-        }
     }
 }

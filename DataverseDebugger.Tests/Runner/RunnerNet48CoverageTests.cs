@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Specialized;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
@@ -71,6 +72,34 @@ public sealed class RunnerNet48CoverageTests
     }
 
     [TestMethod]
+    public void RunnerExecutionOptions_FromEnvironment_ParsesAllowLiveWrites()
+    {
+        var optionsType = GetRunnerType(
+            "DataverseDebugger.Runner.Configuration.RunnerExecutionOptions");
+        var envVarField = optionsType.GetField("AllowLiveWritesEnvVar", BindingFlags.Public | BindingFlags.Static);
+        var envVar = (string)envVarField!.GetValue(null)!;
+        var originalValue = Environment.GetEnvironmentVariable(envVar);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(envVar, "1");
+            var fromEnvironment = optionsType.GetMethod("FromEnvironment", BindingFlags.Public | BindingFlags.Static);
+            var options = fromEnvironment!.Invoke(null, null);
+            var allowLiveWrites = (bool)(optionsType.GetProperty("AllowLiveWrites")?.GetValue(options) ?? false);
+            Assert.IsTrue(allowLiveWrites);
+
+            Environment.SetEnvironmentVariable(envVar, "0");
+            options = fromEnvironment.Invoke(null, null);
+            allowLiveWrites = (bool)(optionsType.GetProperty("AllowLiveWrites")?.GetValue(options) ?? true);
+            Assert.IsFalse(allowLiveWrites);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envVar, originalValue);
+        }
+    }
+
+    [TestMethod]
     public void RunnerConversion_WebApiRequestFactoryCreatesRequest()
     {
         var headers = new NameValueCollection();
@@ -120,6 +149,54 @@ public sealed class RunnerNet48CoverageTests
     }
 
     [TestMethod]
+    public void ExecutionModeResolver_ResolvesExplicitModes()
+    {
+        var resolverType = GetRunnerType("DataverseDebugger.Runner.Pipeline.ExecutionModeResolver");
+        var resolve = resolverType.GetMethod("Resolve", BindingFlags.Public | BindingFlags.Static);
+
+        var hybridRequest = new PluginInvokeRequest { ExecutionMode = "hyBrid" };
+        var hybridResolved = resolve!.Invoke(null, new object[] { hybridRequest });
+        Assert.AreEqual("Hybrid", hybridResolved?.ToString());
+
+        var onlineRequest = new PluginInvokeRequest { ExecutionMode = "ONLINE" };
+        var onlineResolved = resolve.Invoke(null, new object[] { onlineRequest });
+        Assert.AreEqual("Online", onlineResolved?.ToString());
+    }
+
+    [TestMethod]
+    public void ExecutionModeResolver_FallsBackToWriteMode()
+    {
+        var resolverType = GetRunnerType("DataverseDebugger.Runner.Pipeline.ExecutionModeResolver");
+        var resolve = resolverType.GetMethod("Resolve", BindingFlags.Public | BindingFlags.Static);
+
+        var liveRequest = new PluginInvokeRequest { WriteMode = "LiveWrites" };
+        var liveResolved = resolve!.Invoke(null, new object[] { liveRequest });
+        Assert.AreEqual("Online", liveResolved?.ToString());
+
+        var fakeRequest = new PluginInvokeRequest { WriteMode = "FakeWrites" };
+        var fakeResolved = resolve.Invoke(null, new object[] { fakeRequest });
+        Assert.AreEqual("Hybrid", fakeResolved?.ToString());
+    }
+
+    [TestMethod]
+    public void ExecutionModeResolver_RejectsInvalidMode()
+    {
+        var resolverType = GetRunnerType("DataverseDebugger.Runner.Pipeline.ExecutionModeResolver");
+        var resolve = resolverType.GetMethod("Resolve", BindingFlags.Public | BindingFlags.Static);
+
+        var invalidRequest = new PluginInvokeRequest { ExecutionMode = "NotARealMode" };
+        var exception = Assert.ThrowsException<TargetInvocationException>(
+            () => resolve!.Invoke(null, new object[] { invalidRequest }));
+
+        var inner = exception.InnerException;
+        Assert.IsNotNull(inner);
+        var exceptionType = GetRunnerType("DataverseDebugger.Runner.Abstractions.RunnerNotSupportedException");
+        Assert.IsInstanceOfType(inner, exceptionType);
+        StringAssert.Contains(inner!.Message, "Mode=NotARealMode");
+        StringAssert.Contains(inner.Message, "Operation=ExecutionMode");
+    }
+
+    [TestMethod]
     public void PluginInvocationEngine_ExecutesPluginAndCapturesTrace()
     {
         var assemblyPath = typeof(MinimalTestPlugin).Assembly.Location;
@@ -149,6 +226,36 @@ public sealed class RunnerNet48CoverageTests
         Assert.AreEqual(HealthStatus.Ready, response.Status);
         Assert.IsTrue(response.TraceLines.Any(line => line.Contains("MinimalTestPlugin executed")));
         Assert.IsTrue(response.TraceLines.Any(line => line.Contains("Output:Result=Expected")));
+    }
+
+    [TestMethod]
+    public void PluginInvocationEngine_BlocksOnlineWhenLiveWritesDisabled()
+    {
+        var assemblyPath = typeof(MinimalTestPlugin).Assembly.Location;
+        var workspace = BuildWorkspace(assemblyPath);
+
+        using var httpClient = new HttpClient();
+        var engine = CreateEngine(httpClient, workspace, allowLiveWrites: false);
+
+        var invokeRequest = new PluginInvokeRequest
+        {
+            RequestId = "req-online-blocked",
+            Assembly = assemblyPath,
+            TypeName = typeof(MinimalTestPlugin).FullName ?? string.Empty,
+            ExecutionMode = "Online",
+            MessageName = "Create",
+            PrimaryEntityName = "account",
+            PrimaryEntityId = Guid.NewGuid().ToString(),
+            Stage = 40,
+            Mode = 0
+        };
+
+        var payload = JsonSerializer.Serialize(invokeRequest);
+        var response = InvokeEngine(engine, payload, out _);
+
+        Assert.AreEqual(HealthStatus.Error, response.Status);
+        StringAssert.Contains(response.Message ?? string.Empty, "Mode=Online");
+        StringAssert.Contains(response.Message ?? string.Empty, "AllowLiveWrites=true");
     }
 
     [TestMethod]
@@ -296,17 +403,29 @@ public sealed class RunnerNet48CoverageTests
         };
     }
 
-    private static object CreateEngine(HttpClient httpClient, PluginWorkspaceManifest workspace)
+    private static object CreateEngine(HttpClient httpClient, PluginWorkspaceManifest workspace, bool allowLiveWrites = false)
     {
         var engineType = GetRunnerType("DataverseDebugger.Runner.Pipeline.PluginInvocationEngine");
         Func<PluginWorkspaceManifest?> workspaceAccessor = () => workspace;
         Func<EnvConfig?> envAccessor = () => null;
+        var optionsAccessor = CreateOptionsAccessor(allowLiveWrites);
         return Activator.CreateInstance(
             engineType,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             binder: null,
-            args: new object[] { httpClient, workspaceAccessor, envAccessor },
+            args: new object[] { httpClient, workspaceAccessor, envAccessor, optionsAccessor },
             culture: null)!;
+    }
+
+    private static object CreateOptionsAccessor(bool allowLiveWrites)
+    {
+        var optionsType = GetRunnerType("DataverseDebugger.Runner.Configuration.RunnerExecutionOptions");
+        var options = Activator.CreateInstance(optionsType, nonPublic: true);
+        optionsType.GetProperty("AllowLiveWrites")?.SetValue(options, allowLiveWrites);
+
+        var funcType = typeof(Func<>).MakeGenericType(optionsType);
+        var constant = Expression.Constant(options, optionsType);
+        return Expression.Lambda(funcType, constant).Compile();
     }
 
     private static PluginInvokeResponse InvokeEngine(object engine, string payload, out PluginInvokeRequest? parsedRequest)

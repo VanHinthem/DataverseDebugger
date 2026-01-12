@@ -9,7 +9,9 @@ using System.Reflection;
 using System.Text.Json;
 using DataverseDebugger.Protocol;
 using DataverseDebugger.Runner.Conversion.Model;
+using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Query;
 
 namespace DataverseDebugger.Tests.Runner;
 
@@ -294,6 +296,44 @@ public sealed class RunnerNet48CoverageTests
     }
 
     [TestMethod]
+    public void PluginInvocationEngine_OfflineExecutesWithSeededTarget()
+    {
+        var assemblyPath = typeof(OfflineSeedTestPlugin).Assembly.Location;
+        var workspace = BuildWorkspace(assemblyPath);
+
+        using var httpClient = new HttpClient();
+        var engine = CreateEngine(httpClient, workspace);
+
+        var targetId = Guid.NewGuid();
+        var targetJson = JsonSerializer.Serialize(new
+        {
+            logicalName = "account",
+            id = targetId.ToString(),
+            name = "OfflineSeed"
+        });
+
+        var invokeRequest = new PluginInvokeRequest
+        {
+            RequestId = "req-offline-seed",
+            Assembly = assemblyPath,
+            TypeName = typeof(OfflineSeedTestPlugin).FullName ?? string.Empty,
+            ExecutionMode = "Offline",
+            MessageName = "Create",
+            PrimaryEntityName = "account",
+            PrimaryEntityId = targetId.ToString(),
+            Stage = 40,
+            Mode = 0,
+            TargetJson = targetJson
+        };
+
+        var payload = JsonSerializer.Serialize(invokeRequest);
+        var response = InvokeEngine(engine, payload, out _);
+
+        Assert.AreEqual(HealthStatus.Ready, response.Status);
+        Assert.IsTrue(response.TraceLines.Any(line => line.Contains("OfflineName=OfflineSeed")));
+    }
+
+    [TestMethod]
     public void EntryAdapters_ReturnExecutionRequest()
     {
         var request = new PluginInvokeRequest { RequestId = "adapter-1" };
@@ -354,16 +394,78 @@ public sealed class RunnerNet48CoverageTests
     }
 
     [TestMethod]
-    public void OfflineOrganizationService_CreateThrowsNotImplemented()
+    public void OfflineOrganizationService_CRUD_Roundtrip()
+    {
+        var service = CreateOfflineService();
+        var account = new Entity("account");
+        account["name"] = "alpha";
+
+        var id = service.Create(account);
+        Assert.AreNotEqual(Guid.Empty, id);
+
+        var retrieved = service.Retrieve("account", id, new ColumnSet(true));
+        Assert.AreEqual("alpha", retrieved.GetAttributeValue<string>("name"));
+
+        var update = new Entity("account") { Id = id };
+        update["name"] = "beta";
+        service.Update(update);
+
+        var updated = service.Retrieve("account", id, new ColumnSet(true));
+        Assert.AreEqual("beta", updated.GetAttributeValue<string>("name"));
+
+        service.Delete("account", id);
+        var afterDelete = service.Retrieve("account", id, new ColumnSet(true));
+        Assert.AreEqual(id, afterDelete.Id);
+        Assert.IsFalse(afterDelete.Attributes.Contains("name"));
+    }
+
+    [TestMethod]
+    public void OfflineOrganizationService_RetrieveMultiple_ReturnsStoredEntities()
+    {
+        var service = CreateOfflineService();
+        service.Create(new Entity("account") { ["name"] = "one" });
+        service.Create(new Entity("account") { ["name"] = "two" });
+
+        var query = new QueryExpression("account")
+        {
+            ColumnSet = new ColumnSet("name")
+        };
+
+        var results = service.RetrieveMultiple(query);
+        Assert.AreEqual(2, results.Entities.Count);
+        Assert.IsTrue(results.Entities.All(entity => entity.Attributes.Contains("name")));
+    }
+
+    [TestMethod]
+    public void OfflineOrganizationService_Execute_WhoAmIReturnsDefaults()
     {
         var serviceType = GetRunnerType("DataverseDebugger.Runner.Services.Offline.OfflineOrganizationService");
-        var service = Activator.CreateInstance(serviceType, nonPublic: true);
-        var create = serviceType.GetMethod("Create");
+        var service = CreateOfflineService();
 
-        var exception = Assert.ThrowsException<TargetInvocationException>(
-            () => create!.Invoke(service, new object[] { new Entity("account") }));
+        var response = service.Execute(new WhoAmIRequest());
 
-        Assert.IsInstanceOfType(exception.InnerException, typeof(NotImplementedException));
+        var expectedUserId = (Guid)serviceType.GetField("DefaultUserId", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        var expectedBusinessUnitId = (Guid)serviceType.GetField("DefaultBusinessUnitId", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        var expectedOrganizationId = (Guid)serviceType.GetField("DefaultOrganizationId", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+
+        Assert.AreEqual(expectedUserId, response.Results["UserId"]);
+        Assert.AreEqual(expectedBusinessUnitId, response.Results["BusinessUnitId"]);
+        Assert.AreEqual(expectedOrganizationId, response.Results["OrganizationId"]);
+    }
+
+    [TestMethod]
+    public void OfflineOrganizationService_Execute_RejectsUnsupportedRequests()
+    {
+        var service = CreateOfflineService();
+        try
+        {
+            service.Execute(new OrganizationRequest("DoSomething"));
+            Assert.Fail("Expected NotSupportedException.");
+        }
+        catch (NotSupportedException ex)
+        {
+            StringAssert.Contains(ex.Message, "Mode=Offline");
+        }
     }
 
     [TestMethod]
@@ -460,6 +562,12 @@ public sealed class RunnerNet48CoverageTests
             () => build!.Invoke(builder, new[] { request }));
 
         Assert.IsInstanceOfType(exception.InnerException, typeof(NotImplementedException));
+    }
+
+    private static IOrganizationService CreateOfflineService()
+    {
+        var serviceType = GetRunnerType("DataverseDebugger.Runner.Services.Offline.OfflineOrganizationService");
+        return (IOrganizationService)Activator.CreateInstance(serviceType, nonPublic: true)!;
     }
 }
 #endif

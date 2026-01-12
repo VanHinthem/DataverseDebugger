@@ -12,6 +12,10 @@ using Microsoft.Xrm.Sdk;
 
 namespace DataverseDebugger.Runner.Pipeline
 {
+    /// <summary>
+    /// Extracted engine for plugin invocation. Preserves the original RunnerPipeServer
+    /// execution behavior while providing a single delegation seam.
+    /// </summary>
     internal sealed class PluginInvocationEngine
     {
         private readonly System.Net.Http.HttpClient _httpClient;
@@ -28,6 +32,9 @@ namespace DataverseDebugger.Runner.Pipeline
             _getEnvironment = getEnvironment ?? throw new ArgumentNullException(nameof(getEnvironment));
         }
 
+        /// <summary>
+        /// Executes a single plugin invocation using the legacy RunnerPipeServer behavior.
+        /// </summary>
         public PluginInvokeResponse Invoke(string? payload, out PluginInvokeRequest? request)
         {
             RunnerPipeServer.EnsureSdkAssemblyResolver();

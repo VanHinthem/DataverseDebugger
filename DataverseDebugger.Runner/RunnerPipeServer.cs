@@ -685,6 +685,7 @@ namespace DataverseDebugger.Runner
             return Activator.CreateInstance(pluginType) as IPlugin;
         }
 
+        // PR02: keep WebAPI entry wiring intact; delegate to the extracted engine.
         private static PluginInvokeResponse HandleExecutePlugin(string? payload)
         {
             return PluginInvocationEngine.Invoke(payload, out _);

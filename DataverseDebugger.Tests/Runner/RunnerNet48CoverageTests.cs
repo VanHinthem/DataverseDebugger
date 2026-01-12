@@ -123,8 +123,7 @@ public sealed class RunnerNet48CoverageTests
     public void PluginInvocationEngine_ExecutesPluginAndCapturesTrace()
     {
         var assemblyPath = typeof(MinimalTestPlugin).Assembly.Location;
-        var workspace = new PluginWorkspaceManifest();
-        workspace.Assemblies.Add(new PluginAssemblyRef { Path = assemblyPath });
+        var workspace = BuildWorkspace(assemblyPath);
 
         using var httpClient = new HttpClient();
         var engine = CreateEngine(httpClient, workspace);
@@ -150,6 +149,41 @@ public sealed class RunnerNet48CoverageTests
         Assert.AreEqual(HealthStatus.Ready, response.Status);
         Assert.IsTrue(response.TraceLines.Any(line => line.Contains("MinimalTestPlugin executed")));
         Assert.IsTrue(response.TraceLines.Any(line => line.Contains("Output:Result=Expected")));
+    }
+
+    [TestMethod]
+    public void PluginInvocationEngine_PreservesConstructorSelection()
+    {
+        var assemblyPath = typeof(DualConstructorPlugin).Assembly.Location;
+        var workspace = BuildWorkspace(assemblyPath);
+
+        using var httpClient = new HttpClient();
+        var engine = CreateEngine(httpClient, workspace);
+
+        var dualRequest = BuildPluginRequest(
+            assemblyPath,
+            typeof(DualConstructorPlugin),
+            "u-1",
+            "s-1");
+        var dualResponse = InvokeEngine(engine, JsonSerializer.Serialize(dualRequest), out _);
+
+        Assert.AreEqual(HealthStatus.Ready, dualResponse.Status);
+        Assert.IsTrue(dualResponse.TraceLines.Any(line => line.Contains("Using plugin constructor (string unsecure, string secure).")));
+        Assert.IsTrue(dualResponse.TraceLines.Any(line => line.Contains("Ctor=dual")));
+        Assert.IsTrue(dualResponse.TraceLines.Any(line => line.Contains("Unsecure=u-1")));
+        Assert.IsTrue(dualResponse.TraceLines.Any(line => line.Contains("Secure=s-1")));
+
+        var singleRequest = BuildPluginRequest(
+            assemblyPath,
+            typeof(SingleConstructorPlugin),
+            "u-2",
+            "s-2");
+        var singleResponse = InvokeEngine(engine, JsonSerializer.Serialize(singleRequest), out _);
+
+        Assert.AreEqual(HealthStatus.Ready, singleResponse.Status);
+        Assert.IsTrue(singleResponse.TraceLines.Any(line => line.Contains("Using plugin constructor (string unsecure).")));
+        Assert.IsTrue(singleResponse.TraceLines.Any(line => line.Contains("Ctor=single")));
+        Assert.IsTrue(singleResponse.TraceLines.Any(line => line.Contains("Unsecure=u-2")));
     }
 
     [TestMethod]
@@ -235,6 +269,31 @@ public sealed class RunnerNet48CoverageTests
     private static Type GetRunnerType(string typeName)
     {
         return RunnerAssembly.GetType(typeName, throwOnError: true)!;
+    }
+
+    private static PluginWorkspaceManifest BuildWorkspace(string assemblyPath)
+    {
+        var workspace = new PluginWorkspaceManifest();
+        workspace.Assemblies.Add(new PluginAssemblyRef { Path = assemblyPath });
+        return workspace;
+    }
+
+    private static PluginInvokeRequest BuildPluginRequest(string assemblyPath, Type pluginType, string unsecure, string secure)
+    {
+        return new PluginInvokeRequest
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            Assembly = assemblyPath,
+            TypeName = pluginType.FullName ?? string.Empty,
+            MessageName = "Create",
+            PrimaryEntityName = "account",
+            PrimaryEntityId = Guid.NewGuid().ToString(),
+            Stage = 40,
+            Mode = 0,
+            WriteMode = "FakeWrites",
+            UnsecureConfiguration = unsecure,
+            SecureConfiguration = secure
+        };
     }
 
     private static object CreateEngine(HttpClient httpClient, PluginWorkspaceManifest workspace)

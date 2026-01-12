@@ -12,6 +12,7 @@ using DataverseDebugger.Runner.Conversion.Converters;
 using DataverseDebugger.Runner.Conversion.Model;
 using DataverseDebugger.Runner.Conversion.Utils;
 using DataverseDebugger.Runner.Pipeline;
+using DataverseDebugger.Runner.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Metadata;
@@ -47,6 +48,7 @@ namespace DataverseDebugger.Runner
         private const int MaxLogUrlLength = 200;
         private static readonly TimeSpan SlowCommandThreshold = TimeSpan.FromSeconds(2);
         private static readonly PluginInvocationEngine PluginInvocationEngine;
+        private static readonly RunnerExecutionOptions ExecutionOptions;
 
         static RunnerPipeServer()
         {
@@ -59,6 +61,7 @@ namespace DataverseDebugger.Runner
             {
                 Timeout = HttpProxyTimeout
             };
+            ExecutionOptions = RunnerExecutionOptions.FromEnvironment();
             PluginInvocationEngine = new PluginInvocationEngine(
                 HttpClient,
                 () =>
@@ -68,7 +71,8 @@ namespace DataverseDebugger.Runner
                         return _workspace;
                     }
                 },
-                () => _environment);
+                () => _environment,
+                () => ExecutionOptions);
         }
 
         /// <summary>

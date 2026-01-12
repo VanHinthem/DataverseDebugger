@@ -6,8 +6,11 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using DataverseDebugger.Protocol;
+using DataverseDebugger.Runner.Abstractions;
+using DataverseDebugger.Runner.Configuration;
 using DataverseDebugger.Runner.Conversion.Utils;
 using Microsoft.Extensions.Logging;
+using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
 
 namespace DataverseDebugger.Runner.Pipeline
@@ -21,15 +24,18 @@ namespace DataverseDebugger.Runner.Pipeline
         private readonly System.Net.Http.HttpClient _httpClient;
         private readonly Func<PluginWorkspaceManifest?> _getWorkspace;
         private readonly Func<EnvConfig?> _getEnvironment;
+        private readonly Func<RunnerExecutionOptions> _getExecutionOptions;
 
         public PluginInvocationEngine(
             System.Net.Http.HttpClient httpClient,
             Func<PluginWorkspaceManifest?> getWorkspace,
-            Func<EnvConfig?> getEnvironment)
+            Func<EnvConfig?> getEnvironment,
+            Func<RunnerExecutionOptions> getExecutionOptions)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _getWorkspace = getWorkspace ?? throw new ArgumentNullException(nameof(getWorkspace));
             _getEnvironment = getEnvironment ?? throw new ArgumentNullException(nameof(getEnvironment));
+            _getExecutionOptions = getExecutionOptions ?? throw new ArgumentNullException(nameof(getExecutionOptions));
         }
 
         /// <summary>
@@ -40,6 +46,8 @@ namespace DataverseDebugger.Runner.Pipeline
             RunnerPipeServer.EnsureSdkAssemblyResolver();
             var sw = Stopwatch.StartNew();
             request = null;
+            List<string>? trace = null;
+            ServiceClient? serviceClient = null;
             try
             {
                 if (string.IsNullOrWhiteSpace(payload))
@@ -63,8 +71,42 @@ namespace DataverseDebugger.Runner.Pipeline
                     };
                 }
 
+                var resolvedMode = ExecutionModeResolver.Resolve(request);
+                var options = _getExecutionOptions();
+                if (resolvedMode == ExecutionMode.Online && !options.AllowLiveWrites)
+                {
+                    throw new RunnerNotSupportedException(
+                        "Online",
+                        "LiveWrites",
+                        $"Set AllowLiveWrites=true ({RunnerExecutionOptions.AllowLiveWritesEnvVar}).");
+                }
+
+                if (resolvedMode == ExecutionMode.Offline)
+                {
+                    throw new RunnerNotSupportedException(
+                        "Offline",
+                        "PluginInvocation",
+                        "Offline mode is not supported yet.");
+                }
+
                 var requestAssembly = request.Assembly;
                 var requestTypeName = request.TypeName;
+                var environment = _getEnvironment();
+                var effectiveOrgUrl = string.IsNullOrWhiteSpace(request.OrgUrl)
+                    ? environment?.OrgUrl
+                    : request.OrgUrl;
+
+                if (resolvedMode == ExecutionMode.Online || resolvedMode == ExecutionMode.Hybrid)
+                {
+                    serviceClient = TryCreateServiceClient(effectiveOrgUrl, request.AccessToken);
+                    if (resolvedMode == ExecutionMode.Online && serviceClient == null)
+                    {
+                        throw new RunnerNotSupportedException(
+                            "Online",
+                            "LiveWrites",
+                            "OrgUrl and AccessToken are required for Online mode.");
+                    }
+                }
 
                 var ws = _getWorkspace();
                 if (ws == null)
@@ -78,7 +120,7 @@ namespace DataverseDebugger.Runner.Pipeline
                     };
                 }
 
-                var trace = new List<string>();
+                trace = new List<string>();
                 var searchDirs = new List<string>
                 {
                     AppContext.BaseDirectory
@@ -254,31 +296,20 @@ namespace DataverseDebugger.Runner.Pipeline
                         conversionContext = resolvedContext;
                     }
 
-                    var writeMode = RunnerWriteMode.FakeWrites;
-                    if (!string.IsNullOrWhiteSpace(request.WriteMode))
-                    {
-                        if (string.Equals(request.WriteMode, "LiveWrites", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(request.WriteMode, "Live", StringComparison.OrdinalIgnoreCase))
-                        {
-                            writeMode = RunnerWriteMode.LiveWrites;
-                        }
-                        else if (string.Equals(request.WriteMode, "FakeWrites", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(request.WriteMode, "Fake", StringComparison.OrdinalIgnoreCase))
-                        {
-                            writeMode = RunnerWriteMode.FakeWrites;
-                        }
-                    }
+                    var writeMode = resolvedMode == ExecutionMode.Online
+                        ? RunnerWriteMode.LiveWrites
+                        : RunnerWriteMode.FakeWrites;
 
                     var attributeResolver = new AttributeMetadataResolver(
                         conversionContext?.MetadataCache,
-                        _getEnvironment(),
+                        environment,
                         request.AccessToken,
                         _httpClient,
                         trace);
                     var orgService = new RunnerOrganizationService(
                         line => trace.Add(line),
                         _httpClient,
-                        string.IsNullOrWhiteSpace(request.OrgUrl) ? _getEnvironment()?.OrgUrl : request.OrgUrl,
+                        effectiveOrgUrl,
                         request.AccessToken,
                         writeMode,
                         logicalName =>
@@ -286,7 +317,8 @@ namespace DataverseDebugger.Runner.Pipeline
                             var entity = conversionContext?.MetadataCache?.GetEntityFromLogicalName(logicalName);
                             return entity?.EntitySetName;
                         },
-                        attributeResolver);
+                        attributeResolver,
+                        serviceClient);
                     trace.Add($"OrgService write mode: {writeMode}");
                     var orgFactory = new StubOrganizationServiceFactory(orgService);
                     var primaryName = string.IsNullOrWhiteSpace(request.PrimaryEntityName) ? "entity" : request.PrimaryEntityName;
@@ -454,6 +486,16 @@ namespace DataverseDebugger.Runner.Pipeline
                     TraceLines = trace
                 };
             }
+            catch (RunnerNotSupportedException ex)
+            {
+                return new PluginInvokeResponse
+                {
+                    RequestId = request?.RequestId ?? string.Empty,
+                    Status = HealthStatus.Error,
+                    Message = ex.Message,
+                    TraceLines = trace ?? new List<string>()
+                };
+            }
             catch (Exception ex)
             {
                 return new PluginInvokeResponse
@@ -464,8 +506,28 @@ namespace DataverseDebugger.Runner.Pipeline
             }
             finally
             {
+                serviceClient?.Dispose();
                 sw.Stop();
                 RunnerPipeServer.LogSlowCommand("executePlugin", sw.Elapsed, RunnerPipeServer.BuildPluginSummary(request));
+            }
+        }
+
+        private static ServiceClient? TryCreateServiceClient(string? orgUrl, string? accessToken)
+        {
+            if (string.IsNullOrWhiteSpace(orgUrl) || string.IsNullOrWhiteSpace(accessToken))
+            {
+                return null;
+            }
+
+            try
+            {
+                // Uses the caller-provided access token; token refresh is not implemented here.
+                var connectionString = $"AuthType=OAuth;Url={orgUrl};AccessToken={accessToken};";
+                return new ServiceClient(connectionString);
+            }
+            catch
+            {
+                return null;
             }
         }
     }

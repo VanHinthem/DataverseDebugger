@@ -19,11 +19,11 @@ namespace DataverseDebugger.Runner.Logging
             {
                 try
                 {
-                    message = string.Format(format, args);
+                    message = string.Format(format ?? string.Empty, args);
                 }
                 catch (FormatException)
                 {
-                    message = format;
+                    message = format ?? string.Empty;
                 }
             }
 

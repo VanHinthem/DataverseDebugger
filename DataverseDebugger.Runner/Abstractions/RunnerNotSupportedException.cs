@@ -18,9 +18,9 @@ namespace DataverseDebugger.Runner.Abstractions
 
         private static string BuildMessage(string? mode, string? operation, string? guidance)
         {
-            var safeMode = string.IsNullOrWhiteSpace(mode) ? "Unknown" : mode.Trim();
-            var safeOperation = string.IsNullOrWhiteSpace(operation) ? "UnknownOperation" : operation.Trim();
-            var safeGuidance = string.IsNullOrWhiteSpace(guidance) ? "Not supported." : guidance.Trim();
+            var safeMode = string.IsNullOrWhiteSpace(mode) ? "Unknown" : mode!.Trim();
+            var safeOperation = string.IsNullOrWhiteSpace(operation) ? "UnknownOperation" : operation!.Trim();
+            var safeGuidance = string.IsNullOrWhiteSpace(guidance) ? "Not supported." : guidance!.Trim();
             return $"Mode={safeMode}; Operation={safeOperation}; Guidance={safeGuidance}";
         }
     }

@@ -1,6 +1,7 @@
 #if NET48
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
 using System.Linq.Expressions;
@@ -382,15 +383,25 @@ public sealed class RunnerNet48CoverageTests
     }
 
     [TestMethod]
-    public void EntityMergeUtility_MergeThrowsNotImplemented()
+    public void EntityMergeUtility_MergeAppliesOverlay()
     {
         var utilityType = GetRunnerType("DataverseDebugger.Runner.Services.Hybrid.EntityMergeUtility");
         var merge = utilityType.GetMethod("Merge", BindingFlags.Public | BindingFlags.Static);
 
-        var exception = Assert.ThrowsException<TargetInvocationException>(
-            () => merge!.Invoke(null, new object[] { new Entity("account"), new Entity("account") }));
+        var id = Guid.NewGuid();
+        var baseEntity = new Entity("account") { Id = id };
+        baseEntity["name"] = "live";
+        baseEntity["number"] = 1;
 
-        Assert.IsInstanceOfType(exception.InnerException, typeof(NotImplementedException));
+        var overlay = new Entity("account") { Id = id };
+        overlay["name"] = "cached";
+        overlay["extra"] = "value";
+
+        var merged = (Entity)merge!.Invoke(null, new object[] { baseEntity, overlay })!;
+
+        Assert.AreEqual("cached", merged.GetAttributeValue<string>("name"));
+        Assert.AreEqual(1, merged.GetAttributeValue<int>("number"));
+        Assert.AreEqual("value", merged.GetAttributeValue<string>("extra"));
     }
 
     [TestMethod]
@@ -465,6 +476,175 @@ public sealed class RunnerNet48CoverageTests
         catch (NotSupportedException ex)
         {
             StringAssert.Contains(ex.Message, "Mode=Offline");
+        }
+    }
+
+    [TestMethod]
+    public void HybridOrganizationService_WriteOperationsNeverHitLive()
+    {
+        var live = new FakeLiveOrganizationService();
+        var hybrid = CreateHybridService(live);
+
+        var entity = new Entity("account");
+        hybrid.Create(entity);
+
+        var update = new Entity("account") { Id = entity.Id };
+        update["name"] = "cached";
+        hybrid.Update(update);
+
+        hybrid.Delete("account", entity.Id);
+
+        Assert.AreEqual(0, live.CreateCalls);
+        Assert.AreEqual(0, live.UpdateCalls);
+        Assert.AreEqual(0, live.DeleteCalls);
+    }
+
+    [TestMethod]
+    public void HybridOrganizationService_Retrieve_MergesCacheAndLive()
+    {
+        var id = Guid.NewGuid();
+        var live = new FakeLiveOrganizationService();
+        live.OnRetrieve = (name, entityId, columns) =>
+        {
+            live.RetrieveCalls++;
+            var entity = new Entity(name) { Id = entityId };
+            entity["name"] = "live";
+            entity["description"] = "live-desc";
+            return entity;
+        };
+
+        var hybrid = CreateHybridService(live);
+        var update = new Entity("account") { Id = id };
+        update["name"] = "cached";
+        hybrid.Update(update);
+
+        var result = hybrid.Retrieve("account", id, new ColumnSet("name", "description"));
+
+        Assert.AreEqual("cached", result.GetAttributeValue<string>("name"));
+        Assert.AreEqual("live-desc", result.GetAttributeValue<string>("description"));
+        Assert.AreEqual(1, live.RetrieveCalls);
+
+        live.RetrieveCalls = 0;
+        var resultNoLive = hybrid.Retrieve("account", id, new ColumnSet("name"));
+        Assert.AreEqual("cached", resultNoLive.GetAttributeValue<string>("name"));
+        Assert.AreEqual(0, live.RetrieveCalls);
+    }
+
+    [TestMethod]
+    public void HybridOrganizationService_RetrieveMultiple_OverlaysUpdatesAndDeletes()
+    {
+        var idUpdated = Guid.NewGuid();
+        var idDeleted = Guid.NewGuid();
+
+        var live = new FakeLiveOrganizationService();
+        live.OnRetrieveMultiple = _ =>
+        {
+            live.RetrieveMultipleCalls++;
+            var collection = new EntityCollection();
+            collection.Entities.Add(new Entity("account") { Id = idUpdated, ["name"] = "live" });
+            collection.Entities.Add(new Entity("account") { Id = idDeleted, ["name"] = "to-delete" });
+            return collection;
+        };
+
+        var hybrid = CreateHybridService(live);
+        hybrid.Update(new Entity("account") { Id = idUpdated, ["name"] = "cached" });
+        hybrid.Delete("account", idDeleted);
+
+        var query = new QueryExpression("account")
+        {
+            ColumnSet = new ColumnSet("name")
+        };
+
+        var results = hybrid.RetrieveMultiple(query);
+
+        Assert.AreEqual(1, results.Entities.Count);
+        Assert.AreEqual(idUpdated, results.Entities[0].Id);
+        Assert.AreEqual("cached", results.Entities[0].GetAttributeValue<string>("name"));
+    }
+
+    [TestMethod]
+    public void HybridOrganizationService_RetrieveMultiple_IncludesCachedCreatesForIdTargetedQueries()
+    {
+        var id = Guid.NewGuid();
+        var live = new FakeLiveOrganizationService
+        {
+            OnRetrieveMultiple = _ => new EntityCollection()
+        };
+        var hybrid = CreateHybridService(live);
+
+        var created = new Entity("account") { Id = id };
+        created["name"] = "cached";
+        hybrid.Create(created);
+
+        var idQuery = BuildIdTargetedQuery("account", id);
+        var idResults = hybrid.RetrieveMultiple(idQuery);
+        Assert.AreEqual(1, idResults.Entities.Count);
+        Assert.AreEqual(id, idResults.Entities[0].Id);
+
+        var nonIdQuery = new QueryExpression("account")
+        {
+            ColumnSet = new ColumnSet("name")
+        };
+        nonIdQuery.Criteria.AddCondition("name", ConditionOperator.Equal, "cached");
+        var nonIdResults = hybrid.RetrieveMultiple(nonIdQuery);
+        Assert.AreEqual(0, nonIdResults.Entities.Count);
+    }
+
+    [TestMethod]
+    public void HybridOrganizationService_RetrieveMultiple_FetchXmlIdTargetedIncludesCachedCreate()
+    {
+        var id = Guid.NewGuid();
+        var live = new FakeLiveOrganizationService
+        {
+            OnRetrieveMultiple = _ => new EntityCollection()
+        };
+        var hybrid = CreateHybridService(live);
+
+        var created = new Entity("account") { Id = id };
+        created["name"] = "cached";
+        hybrid.Create(created);
+
+        var fetchXml = $@"
+<fetch>
+  <entity name=""account"">
+    <attribute name=""name"" />
+    <filter>
+      <condition attribute=""accountid"" operator=""eq"" value=""{id}"" />
+    </filter>
+  </entity>
+</fetch>";
+
+        var results = hybrid.RetrieveMultiple(new FetchExpression(fetchXml));
+        Assert.AreEqual(1, results.Entities.Count);
+        Assert.AreEqual(id, results.Entities[0].Id);
+        Assert.AreEqual("cached", results.Entities[0].GetAttributeValue<string>("name"));
+    }
+
+    [TestMethod]
+    public void HybridOrganizationService_Execute_WhitelistEnforced()
+    {
+        var live = new FakeLiveOrganizationService();
+        live.OnExecute = request =>
+        {
+            live.ExecuteCalls++;
+            var response = new OrganizationResponse();
+            response.Results["UserId"] = Guid.NewGuid();
+            return response;
+        };
+        var hybrid = CreateHybridService(live);
+
+        var whoResponse = hybrid.Execute(new WhoAmIRequest());
+        Assert.IsTrue(whoResponse.Results.Contains("UserId"));
+        Assert.AreEqual(1, live.ExecuteCalls);
+
+        try
+        {
+            hybrid.Execute(new OrganizationRequest("DoSomething"));
+            Assert.Fail("Expected NotSupportedException.");
+        }
+        catch (NotSupportedException ex)
+        {
+            StringAssert.Contains(ex.Message, "Mode=Hybrid");
         }
     }
 
@@ -568,6 +748,98 @@ public sealed class RunnerNet48CoverageTests
     {
         var serviceType = GetRunnerType("DataverseDebugger.Runner.Services.Offline.OfflineOrganizationService");
         return (IOrganizationService)Activator.CreateInstance(serviceType, nonPublic: true)!;
+    }
+
+    private static IOrganizationService CreateHybridService(IOrganizationService? liveService)
+    {
+        var serviceType = GetRunnerType("DataverseDebugger.Runner.Services.Hybrid.HybridOrganizationService");
+        var log = new Action<string>(_ => { });
+        return (IOrganizationService)Activator.CreateInstance(
+            serviceType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: new object?[] { liveService, log },
+            culture: null)!;
+    }
+
+    private static QueryExpression BuildIdTargetedQuery(string entityName, params Guid[] ids)
+    {
+        var query = new QueryExpression(entityName)
+        {
+            ColumnSet = new ColumnSet("name")
+        };
+
+        if (ids.Length == 1)
+        {
+            query.Criteria.AddCondition(entityName + "id", ConditionOperator.Equal, ids[0]);
+        }
+        else
+        {
+            query.Criteria.AddCondition(entityName + "id", ConditionOperator.In, ids.Cast<object>().ToArray());
+        }
+
+        return query;
+    }
+}
+
+internal sealed class FakeLiveOrganizationService : IOrganizationService
+{
+    public int CreateCalls { get; set; }
+    public int UpdateCalls { get; set; }
+    public int DeleteCalls { get; set; }
+    public int RetrieveCalls { get; set; }
+    public int RetrieveMultipleCalls { get; set; }
+    public int ExecuteCalls { get; set; }
+
+    public Func<string, Guid, ColumnSet, Entity>? OnRetrieve { get; set; }
+    public Func<QueryBase, EntityCollection>? OnRetrieveMultiple { get; set; }
+    public Func<OrganizationRequest, OrganizationResponse>? OnExecute { get; set; }
+
+    public Guid Create(Entity entity)
+    {
+        CreateCalls++;
+        throw new InvalidOperationException("Live create should not be called in Hybrid.");
+    }
+
+    public void Update(Entity entity)
+    {
+        UpdateCalls++;
+        throw new InvalidOperationException("Live update should not be called in Hybrid.");
+    }
+
+    public void Delete(string entityName, Guid id)
+    {
+        DeleteCalls++;
+        throw new InvalidOperationException("Live delete should not be called in Hybrid.");
+    }
+
+    public Entity Retrieve(string entityName, Guid id, ColumnSet columnSet)
+    {
+        return OnRetrieve != null
+            ? OnRetrieve(entityName, id, columnSet)
+            : new Entity(entityName) { Id = id };
+    }
+
+    public EntityCollection RetrieveMultiple(QueryBase query)
+    {
+        return OnRetrieveMultiple != null
+            ? OnRetrieveMultiple(query)
+            : new EntityCollection();
+    }
+
+    public OrganizationResponse Execute(OrganizationRequest request)
+    {
+        return OnExecute != null
+            ? OnExecute(request)
+            : new OrganizationResponse();
+    }
+
+    public void Associate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities)
+    {
+    }
+
+    public void Disassociate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities)
+    {
     }
 }
 #endif

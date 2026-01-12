@@ -9,6 +9,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
 using DataverseDebugger.Protocol;
+using DataverseDebugger.Runner.Abstractions;
 using DataverseDebugger.Runner.Conversion.Model;
 using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
@@ -698,6 +699,99 @@ public sealed class RunnerNet48CoverageTests
     }
 
     [TestMethod]
+    public void PluginInvocationEngine_Online_UsesLiveFactory()
+    {
+        var assemblyPath = typeof(OnlineCreateTestPlugin).Assembly.Location;
+        var workspace = BuildWorkspace(assemblyPath);
+
+        var liveService = new FakeLiveOrganizationService();
+        liveService.OnCreate = entity =>
+        {
+            liveService.CreateCalls++;
+            return entity.Id != Guid.Empty ? entity.Id : Guid.NewGuid();
+        };
+
+        var factory = new FakeLiveOrganizationServiceFactory
+        {
+            LiveService = liveService
+        };
+
+        using var httpClient = new HttpClient();
+        var engine = CreateEngineWithFactory(httpClient, workspace, factory, allowLiveWrites: true);
+
+        var invokeRequest = new PluginInvokeRequest
+        {
+            RequestId = "req-online-factory",
+            Assembly = assemblyPath,
+            TypeName = typeof(OnlineCreateTestPlugin).FullName ?? string.Empty,
+            ExecutionMode = "Online",
+            MessageName = "Create",
+            PrimaryEntityName = "account",
+            PrimaryEntityId = Guid.NewGuid().ToString(),
+            Stage = 40,
+            Mode = 0,
+            OrgUrl = "https://example.crm.dynamics.com",
+            AccessToken = "token"
+        };
+
+        var payload = JsonSerializer.Serialize(invokeRequest);
+        var response = InvokeEngine(engine, payload, out _);
+
+        Assert.AreEqual(HealthStatus.Ready, response.Status);
+        Assert.IsTrue(factory.CreateLiveServiceCalls >= 1);
+        Assert.IsTrue(liveService.CreateCalls >= 1);
+    }
+
+    [TestMethod]
+    public void PluginInvocationEngine_Hybrid_UsesLiveFactoryForReads()
+    {
+        var assemblyPath = typeof(HybridReadTestPlugin).Assembly.Location;
+        var workspace = BuildWorkspace(assemblyPath);
+
+        var liveService = new FakeLiveOrganizationService();
+        liveService.OnRetrieve = (name, id, columns) =>
+        {
+            liveService.RetrieveCalls++;
+            var entity = new Entity(name) { Id = id };
+            entity["name"] = "live";
+            return entity;
+        };
+
+        var factory = new FakeLiveOrganizationServiceFactory
+        {
+            LiveService = liveService
+        };
+
+        using var httpClient = new HttpClient();
+        var engine = CreateEngineWithFactory(httpClient, workspace, factory);
+
+        var invokeRequest = new PluginInvokeRequest
+        {
+            RequestId = "req-hybrid-factory",
+            Assembly = assemblyPath,
+            TypeName = typeof(HybridReadTestPlugin).FullName ?? string.Empty,
+            ExecutionMode = "Hybrid",
+            MessageName = "Retrieve",
+            PrimaryEntityName = "account",
+            PrimaryEntityId = Guid.NewGuid().ToString(),
+            Stage = 40,
+            Mode = 0,
+            OrgUrl = "https://example.crm.dynamics.com",
+            AccessToken = "token"
+        };
+
+        var payload = JsonSerializer.Serialize(invokeRequest);
+        var response = InvokeEngine(engine, payload, out _);
+
+        Assert.AreEqual(HealthStatus.Ready, response.Status);
+        Assert.AreEqual(1, factory.CreateLiveServiceCalls);
+        Assert.AreEqual(1, liveService.RetrieveCalls);
+        Assert.AreEqual(0, liveService.CreateCalls);
+        Assert.AreEqual(0, liveService.UpdateCalls);
+        Assert.AreEqual(0, liveService.DeleteCalls);
+    }
+
+    [TestMethod]
     public void ContextBuilders_ThrowNotImplemented()
     {
         AssertBuilderThrows("DataverseDebugger.Runner.ExecutionContext.WebApiContextBuilder");
@@ -745,6 +839,24 @@ public sealed class RunnerNet48CoverageTests
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             binder: null,
             args: new object[] { httpClient, workspaceAccessor, envAccessor, optionsAccessor },
+            culture: null)!;
+    }
+
+    private static object CreateEngineWithFactory(
+        HttpClient httpClient,
+        PluginWorkspaceManifest workspace,
+        ILiveOrganizationServiceFactory factory,
+        bool allowLiveWrites = false)
+    {
+        var engineType = GetRunnerType("DataverseDebugger.Runner.Pipeline.PluginInvocationEngine");
+        Func<PluginWorkspaceManifest?> workspaceAccessor = () => workspace;
+        Func<EnvConfig?> envAccessor = () => null;
+        var optionsAccessor = CreateOptionsAccessor(allowLiveWrites);
+        return Activator.CreateInstance(
+            engineType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: new object[] { httpClient, workspaceAccessor, envAccessor, optionsAccessor, factory },
             culture: null)!;
     }
 
@@ -843,22 +955,39 @@ internal sealed class FakeLiveOrganizationService : IOrganizationService
     public Func<string, Guid, ColumnSet, Entity>? OnRetrieve { get; set; }
     public Func<QueryBase, EntityCollection>? OnRetrieveMultiple { get; set; }
     public Func<OrganizationRequest, OrganizationResponse>? OnExecute { get; set; }
+    public Func<Entity, Guid>? OnCreate { get; set; }
+    public Action<Entity>? OnUpdate { get; set; }
+    public Action<string, Guid>? OnDelete { get; set; }
 
     public Guid Create(Entity entity)
     {
         CreateCalls++;
+        if (OnCreate != null)
+        {
+            return OnCreate(entity);
+        }
         throw new InvalidOperationException("Live create should not be called in Hybrid.");
     }
 
     public void Update(Entity entity)
     {
         UpdateCalls++;
+        if (OnUpdate != null)
+        {
+            OnUpdate(entity);
+            return;
+        }
         throw new InvalidOperationException("Live update should not be called in Hybrid.");
     }
 
     public void Delete(string entityName, Guid id)
     {
         DeleteCalls++;
+        if (OnDelete != null)
+        {
+            OnDelete(entityName, id);
+            return;
+        }
         throw new InvalidOperationException("Live delete should not be called in Hybrid.");
     }
 
@@ -889,6 +1018,20 @@ internal sealed class FakeLiveOrganizationService : IOrganizationService
 
     public void Disassociate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities)
     {
+    }
+}
+
+internal sealed class FakeLiveOrganizationServiceFactory : ILiveOrganizationServiceFactory
+{
+    public int CreateLiveServiceCalls { get; private set; }
+    public IOrganizationService? LiveService { get; set; }
+    public IDisposable? Disposable { get; set; }
+
+    public IOrganizationService? CreateLiveService(string? orgUrl, string? accessToken, out IDisposable? disposable)
+    {
+        CreateLiveServiceCalls++;
+        disposable = Disposable;
+        return LiveService;
     }
 }
 #endif

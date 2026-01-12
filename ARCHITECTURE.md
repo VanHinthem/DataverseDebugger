@@ -102,8 +102,9 @@ Modern WPF host (.NET 8) paired with an isolated .NET Framework 4.8 runner that 
   - Preserve filtering attributes, images, depth, parent correlation.
   - Provide `ITracingService`, `IOrganizationServiceFactory`; track nested calls for execution tree.
 - Dataverse calls:
-  - Use host-forwarded bearer token with `HttpClient` to the Web API.
-  - SDK-style requests optional; default to Web API for fidelity.
+  - Debugging execution uses ServiceClient-backed `IOrganizationService` for live connectivity.
+  - Host-side Web API proxy routing remains separate from the runner pipeline.
+  - SDK-style requests optional; default to Web API for proxy fidelity.
 - Async step handling:
   - Optional "disable async steps on server" per assembly; best-effort re-enable on shutdown/startup.
 - Telemetry to host:
@@ -132,6 +133,13 @@ Modern WPF host (.NET 8) paired with an isolated .NET Framework 4.8 runner that 
   - MSAL token cache stored per environment; used for metadata and catalog fetch.
   - WebView2 sign-in remains separate; requests still include bearer tokens for proxying.
 - Runner uses the forwarded request headers for HTTP proxy calls; no separate login required for proxied traffic.
+
+## Execution modes (plugin debugging)
+- **Offline**: in-memory execution only; no live calls. `Execute` supports WhoAmI only.
+- **Hybrid**: cached writes + live reads using ServiceClient. Cache overlays live results; cached creates appear only for ID-targeted queries. `Execute` is Whitelisted to WhoAmI only.
+- **Online**: live reads + writes using ServiceClient. Writes are gated by `DATAVERSE_DEBUGGER_ALLOW_LIVE_WRITES`.
+- `ExecutionMode` is authoritative when provided; legacy `WriteMode` fallback applies when absent.
+- Token refresh is not implemented in the runner; a fresh token is expected per request.
 
 ## Failure handling
 - Runner crash -> host auto-restart; Proxy-only until ready.

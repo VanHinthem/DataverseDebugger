@@ -393,7 +393,7 @@ namespace DataverseDebugger.Runner.Services.Hybrid
                 }
             }
 
-            return new RequestedAttributes(set.Count == 0, set);
+            return new RequestedAttributes(false, set);
         }
 
         private static RequestedAttributes GetRequestedAttributes(QueryBase query, string? logicalName)

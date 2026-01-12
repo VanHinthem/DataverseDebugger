@@ -531,6 +531,28 @@ public sealed class RunnerNet48CoverageTests
     }
 
     [TestMethod]
+    public void HybridOrganizationService_Retrieve_EmptyColumnSetDoesNotCallLive()
+    {
+        var id = Guid.NewGuid();
+        var live = new FakeLiveOrganizationService();
+        live.OnRetrieve = (name, entityId, columns) =>
+        {
+            live.RetrieveCalls++;
+            var entity = new Entity(name) { Id = entityId };
+            entity["name"] = "live";
+            return entity;
+        };
+
+        var hybrid = CreateHybridService(live);
+        hybrid.Update(new Entity("account") { Id = id, ["name"] = "cached" });
+
+        var result = hybrid.Retrieve("account", id, new ColumnSet());
+
+        Assert.AreEqual(0, live.RetrieveCalls);
+        Assert.AreEqual(0, result.Attributes.Count);
+    }
+
+    [TestMethod]
     public void HybridOrganizationService_RetrieveMultiple_OverlaysUpdatesAndDeletes()
     {
         var idUpdated = Guid.NewGuid();
@@ -560,6 +582,33 @@ public sealed class RunnerNet48CoverageTests
         Assert.AreEqual(1, results.Entities.Count);
         Assert.AreEqual(idUpdated, results.Entities[0].Id);
         Assert.AreEqual("cached", results.Entities[0].GetAttributeValue<string>("name"));
+    }
+
+    [TestMethod]
+    public void HybridOrganizationService_RetrieveMultiple_EmptyColumnSetDoesNotBackfillLive()
+    {
+        var id = Guid.NewGuid();
+        var live = new FakeLiveOrganizationService();
+        live.OnRetrieveMultiple = _ =>
+        {
+            var collection = new EntityCollection();
+            collection.Entities.Add(new Entity("account") { Id = id, ["name"] = "live" });
+            return collection;
+        };
+
+        var hybrid = CreateHybridService(live);
+        hybrid.Update(new Entity("account") { Id = id, ["name"] = "cached" });
+
+        var query = new QueryExpression("account")
+        {
+            ColumnSet = new ColumnSet()
+        };
+
+        var results = hybrid.RetrieveMultiple(query);
+
+        Assert.AreEqual(1, results.Entities.Count);
+        Assert.AreEqual(id, results.Entities[0].Id);
+        Assert.AreEqual(0, results.Entities[0].Attributes.Count);
     }
 
     [TestMethod]

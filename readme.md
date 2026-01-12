@@ -35,6 +35,24 @@ Dataverse Debugger is a Windows desktop tool that lets you reproduce Microsoft D
 - You are building FetchXML/CRUD calls and want to send them either to Dataverse or to your local debugger using the same UI.
 - You must test impersonation scenarios or confirm how field-level changes impact the payload before saving.
 
+## Execution Modes (Plugin Debugging)
+
+The runner supports three execution modes for plugin debugging payloads:
+
+- **Offline**: fully in-memory; no live Dataverse calls. `Execute` supports WhoAmI only.
+- **Hybrid**: cached writes + live reads via a ServiceClient-backed `IOrganizationService`. Cached creates are only injected for ID-targeted queries.
+- **Online**: live reads + writes via ServiceClient. Writes are gated by `DATAVERSE_DEBUGGER_ALLOW_LIVE_WRITES`.
+
+Execution mode is driven by the `ExecutionMode` request field (`Offline`, `Hybrid`, `Online`). If absent, legacy `WriteMode` mapping applies.
+
+## Known Limitations
+
+- Plugin execution is single-step (no pipeline re-entry simulation).
+- Offline supports WhoAmI only for `Execute`.
+- Hybrid `Execute` is Whitelisted to WhoAmI only.
+- Access tokens are supplied per request; token refresh is not handled by the runner.
+- Host-side Web API proxy routing remains separate from the runner's plugin debugging pipeline.
+
 ## Requirements
 
 - Windows 10/11 with the [WebView2 runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) installed (run the Evergreen bootstrapper once if needed).
@@ -46,7 +64,7 @@ Dataverse Debugger is a Windows desktop tool that lets you reproduce Microsoft D
 - Darkmode
 - Webresource Debugging (fiddler style)
 - Fake plugin registration
-- Offline debugging, like profiler
+- Expanded offline debugging UX
 
 ## Related Docs
 

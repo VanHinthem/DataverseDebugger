@@ -1,13 +1,15 @@
+using System;
+using DataverseDebugger.Runner.Abstractions;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
 
 namespace DataverseDebugger.Runner.Services.Hybrid
 {
-    internal static class ServiceClientOrganizationServiceFactory
+    internal sealed class ServiceClientOrganizationServiceFactory : ILiveOrganizationServiceFactory
     {
-        public static IOrganizationService? TryCreate(string? orgUrl, string? accessToken, out ServiceClient? serviceClient)
+        public IOrganizationService? CreateLiveService(string? orgUrl, string? accessToken, out IDisposable? disposable)
         {
-            serviceClient = null;
+            disposable = null;
             if (string.IsNullOrWhiteSpace(orgUrl) || string.IsNullOrWhiteSpace(accessToken))
             {
                 return null;
@@ -16,12 +18,13 @@ namespace DataverseDebugger.Runner.Services.Hybrid
             try
             {
                 var connectionString = $"AuthType=OAuth;Url={orgUrl};AccessToken={accessToken};";
-                serviceClient = new ServiceClient(connectionString);
-                return serviceClient;
+                var client = new ServiceClient(connectionString);
+                disposable = client;
+                return client;
             }
             catch
             {
-                serviceClient = null;
+                disposable = null;
                 return null;
             }
         }

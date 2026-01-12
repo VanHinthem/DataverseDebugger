@@ -12,7 +12,6 @@ using DataverseDebugger.Runner.Conversion.Utils;
 using DataverseDebugger.Runner.Services.Hybrid;
 using DataverseDebugger.Runner.Services.Offline;
 using Microsoft.Extensions.Logging;
-using Microsoft.PowerPlatform.Dataverse.Client;
 using Microsoft.Xrm.Sdk;
 
 namespace DataverseDebugger.Runner.Pipeline
@@ -27,17 +26,29 @@ namespace DataverseDebugger.Runner.Pipeline
         private readonly Func<PluginWorkspaceManifest?> _getWorkspace;
         private readonly Func<EnvConfig?> _getEnvironment;
         private readonly Func<RunnerExecutionOptions> _getExecutionOptions;
+        private readonly ILiveOrganizationServiceFactory _liveServiceFactory;
 
         public PluginInvocationEngine(
             System.Net.Http.HttpClient httpClient,
             Func<PluginWorkspaceManifest?> getWorkspace,
             Func<EnvConfig?> getEnvironment,
             Func<RunnerExecutionOptions> getExecutionOptions)
+            : this(httpClient, getWorkspace, getEnvironment, getExecutionOptions, new ServiceClientOrganizationServiceFactory())
+        {
+        }
+
+        public PluginInvocationEngine(
+            System.Net.Http.HttpClient httpClient,
+            Func<PluginWorkspaceManifest?> getWorkspace,
+            Func<EnvConfig?> getEnvironment,
+            Func<RunnerExecutionOptions> getExecutionOptions,
+            ILiveOrganizationServiceFactory liveServiceFactory)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _getWorkspace = getWorkspace ?? throw new ArgumentNullException(nameof(getWorkspace));
             _getEnvironment = getEnvironment ?? throw new ArgumentNullException(nameof(getEnvironment));
             _getExecutionOptions = getExecutionOptions ?? throw new ArgumentNullException(nameof(getExecutionOptions));
+            _liveServiceFactory = liveServiceFactory ?? throw new ArgumentNullException(nameof(liveServiceFactory));
         }
 
         /// <summary>
@@ -49,7 +60,7 @@ namespace DataverseDebugger.Runner.Pipeline
             var sw = Stopwatch.StartNew();
             request = null;
             List<string>? trace = null;
-            ServiceClient? serviceClient = null;
+            IDisposable? liveServiceDisposable = null;
             IOrganizationService? liveService = null;
             OfflineOrganizationService? offlineService = null;
             try
@@ -94,10 +105,10 @@ namespace DataverseDebugger.Runner.Pipeline
 
                 if (resolvedMode == ExecutionMode.Online || resolvedMode == ExecutionMode.Hybrid)
                 {
-                    liveService = ServiceClientOrganizationServiceFactory.TryCreate(
+                    liveService = _liveServiceFactory.CreateLiveService(
                         effectiveOrgUrl,
                         request.AccessToken,
-                        out serviceClient);
+                        out liveServiceDisposable);
                     if (resolvedMode == ExecutionMode.Online && liveService == null)
                     {
                         throw new RunnerNotSupportedException(
@@ -331,7 +342,7 @@ namespace DataverseDebugger.Runner.Pipeline
                                 return entity?.EntitySetName;
                             },
                             attributeResolver,
-                            serviceClient);
+                            liveService);
                         trace.Add($"OrgService write mode: {writeMode}");
                     }
 
@@ -540,7 +551,7 @@ namespace DataverseDebugger.Runner.Pipeline
             }
             finally
             {
-                serviceClient?.Dispose();
+                liveServiceDisposable?.Dispose();
                 sw.Stop();
                 RunnerPipeServer.LogSlowCommand("executePlugin", sw.Elapsed, RunnerPipeServer.BuildPluginSummary(request));
             }

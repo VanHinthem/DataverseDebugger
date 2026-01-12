@@ -2,7 +2,10 @@
 using System;
 using System.Collections;
 using System.Collections.Specialized;
+using System.Linq;
+using System.Net.Http;
 using System.Reflection;
+using System.Text.Json;
 using DataverseDebugger.Protocol;
 using DataverseDebugger.Runner.Conversion.Model;
 using Microsoft.Xrm.Sdk;
@@ -117,18 +120,70 @@ public sealed class RunnerNet48CoverageTests
     }
 
     [TestMethod]
-    public void PluginInvocationEngine_ExecuteThrowsNotImplemented()
+    public void PluginInvocationEngine_ExecutesPluginAndCapturesTrace()
     {
-        var engineType = GetRunnerType("DataverseDebugger.Runner.Pipeline.PluginInvocationEngine");
-        var engine = Activator.CreateInstance(engineType, nonPublic: true);
-        var requestType = GetRunnerType("DataverseDebugger.Runner.Pipeline.ExecutionRequest");
-        var request = Activator.CreateInstance(requestType, nonPublic: true);
-        var execute = engineType.GetMethod("Execute");
+        var assemblyPath = typeof(MinimalTestPlugin).Assembly.Location;
+        var workspace = BuildWorkspace(assemblyPath);
 
-        var exception = Assert.ThrowsException<TargetInvocationException>(
-            () => execute!.Invoke(engine, new[] { request }));
+        using var httpClient = new HttpClient();
+        var engine = CreateEngine(httpClient, workspace);
 
-        Assert.IsInstanceOfType(exception.InnerException, typeof(NotImplementedException));
+        var invokeRequest = new PluginInvokeRequest
+        {
+            RequestId = "req-001",
+            Assembly = assemblyPath,
+            TypeName = typeof(MinimalTestPlugin).FullName ?? string.Empty,
+            MessageName = "Create",
+            PrimaryEntityName = "account",
+            PrimaryEntityId = Guid.NewGuid().ToString(),
+            Stage = 40,
+            Mode = 0,
+            WriteMode = "FakeWrites"
+        };
+
+        var payload = JsonSerializer.Serialize(invokeRequest);
+        var response = InvokeEngine(engine, payload, out var parsedRequest);
+
+        Assert.IsNotNull(parsedRequest);
+        Assert.AreEqual(invokeRequest.RequestId, parsedRequest!.RequestId);
+        Assert.AreEqual(HealthStatus.Ready, response.Status);
+        Assert.IsTrue(response.TraceLines.Any(line => line.Contains("MinimalTestPlugin executed")));
+        Assert.IsTrue(response.TraceLines.Any(line => line.Contains("Output:Result=Expected")));
+    }
+
+    [TestMethod]
+    public void PluginInvocationEngine_PreservesConstructorSelection()
+    {
+        var assemblyPath = typeof(DualConstructorPlugin).Assembly.Location;
+        var workspace = BuildWorkspace(assemblyPath);
+
+        using var httpClient = new HttpClient();
+        var engine = CreateEngine(httpClient, workspace);
+
+        var dualRequest = BuildPluginRequest(
+            assemblyPath,
+            typeof(DualConstructorPlugin),
+            "u-1",
+            "s-1");
+        var dualResponse = InvokeEngine(engine, JsonSerializer.Serialize(dualRequest), out _);
+
+        Assert.AreEqual(HealthStatus.Ready, dualResponse.Status);
+        Assert.IsTrue(dualResponse.TraceLines.Any(line => line.Contains("Using plugin constructor (string unsecure, string secure).")));
+        Assert.IsTrue(dualResponse.TraceLines.Any(line => line.Contains("Ctor=dual")));
+        Assert.IsTrue(dualResponse.TraceLines.Any(line => line.Contains("Unsecure=u-1")));
+        Assert.IsTrue(dualResponse.TraceLines.Any(line => line.Contains("Secure=s-1")));
+
+        var singleRequest = BuildPluginRequest(
+            assemblyPath,
+            typeof(SingleConstructorPlugin),
+            "u-2",
+            "s-2");
+        var singleResponse = InvokeEngine(engine, JsonSerializer.Serialize(singleRequest), out _);
+
+        Assert.AreEqual(HealthStatus.Ready, singleResponse.Status);
+        Assert.IsTrue(singleResponse.TraceLines.Any(line => line.Contains("Using plugin constructor (string unsecure).")));
+        Assert.IsTrue(singleResponse.TraceLines.Any(line => line.Contains("Ctor=single")));
+        Assert.IsTrue(singleResponse.TraceLines.Any(line => line.Contains("Unsecure=u-2")));
     }
 
     [TestMethod]
@@ -214,6 +269,53 @@ public sealed class RunnerNet48CoverageTests
     private static Type GetRunnerType(string typeName)
     {
         return RunnerAssembly.GetType(typeName, throwOnError: true)!;
+    }
+
+    private static PluginWorkspaceManifest BuildWorkspace(string assemblyPath)
+    {
+        var workspace = new PluginWorkspaceManifest();
+        workspace.Assemblies.Add(new PluginAssemblyRef { Path = assemblyPath });
+        return workspace;
+    }
+
+    private static PluginInvokeRequest BuildPluginRequest(string assemblyPath, Type pluginType, string unsecure, string secure)
+    {
+        return new PluginInvokeRequest
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            Assembly = assemblyPath,
+            TypeName = pluginType.FullName ?? string.Empty,
+            MessageName = "Create",
+            PrimaryEntityName = "account",
+            PrimaryEntityId = Guid.NewGuid().ToString(),
+            Stage = 40,
+            Mode = 0,
+            WriteMode = "FakeWrites",
+            UnsecureConfiguration = unsecure,
+            SecureConfiguration = secure
+        };
+    }
+
+    private static object CreateEngine(HttpClient httpClient, PluginWorkspaceManifest workspace)
+    {
+        var engineType = GetRunnerType("DataverseDebugger.Runner.Pipeline.PluginInvocationEngine");
+        Func<PluginWorkspaceManifest?> workspaceAccessor = () => workspace;
+        Func<EnvConfig?> envAccessor = () => null;
+        return Activator.CreateInstance(
+            engineType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: new object[] { httpClient, workspaceAccessor, envAccessor },
+            culture: null)!;
+    }
+
+    private static PluginInvokeResponse InvokeEngine(object engine, string payload, out PluginInvokeRequest? parsedRequest)
+    {
+        var method = engine.GetType().GetMethod("Invoke");
+        var args = new object?[] { payload, null };
+        var response = (PluginInvokeResponse)method!.Invoke(engine, args)!;
+        parsedRequest = args[1] as PluginInvokeRequest;
+        return response;
     }
 
     private static string GetEntryAdapterRequestId(string adapterTypeName, PluginInvokeRequest request)

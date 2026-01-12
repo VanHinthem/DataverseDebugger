@@ -11,6 +11,7 @@ using DataverseDebugger.Protocol;
 using DataverseDebugger.Runner.Conversion.Converters;
 using DataverseDebugger.Runner.Conversion.Model;
 using DataverseDebugger.Runner.Conversion.Utils;
+using DataverseDebugger.Runner.Pipeline;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Metadata;
@@ -45,6 +46,7 @@ namespace DataverseDebugger.Runner
         private static DateTime? _conversionMetadataStampUtc;
         private const int MaxLogUrlLength = 200;
         private static readonly TimeSpan SlowCommandThreshold = TimeSpan.FromSeconds(2);
+        private static readonly PluginInvocationEngine PluginInvocationEngine;
 
         static RunnerPipeServer()
         {
@@ -57,6 +59,16 @@ namespace DataverseDebugger.Runner
             {
                 Timeout = HttpProxyTimeout
             };
+            PluginInvocationEngine = new PluginInvocationEngine(
+                HttpClient,
+                () =>
+                {
+                    lock (WorkspaceLock)
+                    {
+                        return _workspace;
+                    }
+                },
+                () => _environment);
         }
 
         /// <summary>
@@ -93,7 +105,7 @@ namespace DataverseDebugger.Runner
             return $"{method} {url} (id={requestId ?? "none"}, cid={clientRequestId ?? "none"})";
         }
 
-        private static string BuildPluginSummary(PluginInvokeRequest? request)
+        internal static string BuildPluginSummary(PluginInvokeRequest? request)
         {
             if (request == null)
             {
@@ -105,7 +117,7 @@ namespace DataverseDebugger.Runner
             return $"{typeName} msg={message} stage={request.Stage} mode={request.Mode} id={request.RequestId}";
         }
 
-        private static void LogSlowCommand(string command, TimeSpan elapsed, string? detail)
+        internal static void LogSlowCommand(string command, TimeSpan elapsed, string? detail)
         {
             if (elapsed < SlowCommandThreshold)
             {
@@ -359,7 +371,7 @@ namespace DataverseDebugger.Runner
             }
         }
 
-        private static bool TryGetConversionContext(out DataverseContext context, out string error)
+        internal static bool TryGetConversionContext(out DataverseContext context, out string error)
         {
             context = null!;
             error = string.Empty;
@@ -454,7 +466,7 @@ namespace DataverseDebugger.Runner
             }
         }
 
-        private static bool TryPopulateContextFromHttp(PluginInvokeRequest request, StubPluginExecutionContext context, System.Collections.Generic.List<string> trace)
+        internal static bool TryPopulateContextFromHttp(PluginInvokeRequest request, StubPluginExecutionContext context, System.Collections.Generic.List<string> trace)
         {
             var httpRequest = request.HttpRequest;
             if (httpRequest == null)
@@ -615,7 +627,7 @@ namespace DataverseDebugger.Runner
             }
         }
 
-        private static object? GetParameter(ParameterCollection parameters, string name)
+        internal static object? GetParameter(ParameterCollection parameters, string name)
         {
             if (parameters == null || string.IsNullOrWhiteSpace(name))
             {
@@ -625,7 +637,7 @@ namespace DataverseDebugger.Runner
             return parameters.Contains(name) ? parameters[name] : null;
         }
 
-        private static NameValueCollection BuildNameValueCollection(System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>? headers)
+        internal static NameValueCollection BuildNameValueCollection(System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>? headers)
         {
             var collection = new NameValueCollection(StringComparer.OrdinalIgnoreCase);
             if (headers == null)
@@ -650,7 +662,7 @@ namespace DataverseDebugger.Runner
             return collection;
         }
 
-        private static IPlugin? CreatePluginInstance(Type pluginType, string? unsecureConfig, string? secureConfig, System.Collections.Generic.List<string> trace)
+        internal static IPlugin? CreatePluginInstance(Type pluginType, string? unsecureConfig, string? secureConfig, System.Collections.Generic.List<string> trace)
         {
             var ctor2 = pluginType.GetConstructor(new[] { typeof(string), typeof(string) });
             if (ctor2 != null)
@@ -673,436 +685,10 @@ namespace DataverseDebugger.Runner
             return Activator.CreateInstance(pluginType) as IPlugin;
         }
 
+        // PR02: keep WebAPI entry wiring intact; delegate to the extracted engine.
         private static PluginInvokeResponse HandleExecutePlugin(string? payload)
         {
-            EnsureSdkAssemblyResolver();
-            var sw = Stopwatch.StartNew();
-            PluginInvokeRequest? request = null;
-            try
-            {
-                if (string.IsNullOrWhiteSpace(payload))
-                {
-                    return new PluginInvokeResponse
-                    {
-                        Status = HealthStatus.Error,
-                        Message = "Empty plugin payload"
-                    };
-                }
-
-                request = JsonSerializer.Deserialize<PluginInvokeRequest>(payload!, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (request == null)
-                {
-                    return new PluginInvokeResponse
-                    {
-                        Status = HealthStatus.Error,
-                        Message = "Invalid plugin payload"
-                    };
-                }
-
-                PluginWorkspaceManifest? ws;
-                lock (WorkspaceLock)
-                {
-                    ws = _workspace;
-                }
-
-                if (ws == null)
-                {
-                    return new PluginInvokeResponse
-                    {
-                        RequestId = request.RequestId,
-                        Status = HealthStatus.Error,
-                        Message = "Workspace not initialized",
-                        TraceLines = new System.Collections.Generic.List<string> { "Workspace not initialized" }
-                    };
-                }
-
-                var trace = new System.Collections.Generic.List<string>();
-                var searchDirs = new System.Collections.Generic.List<string>
-                {
-                    AppContext.BaseDirectory
-                };
-                var shadowDirs = new System.Collections.Generic.List<string>();
-
-                var resolvedAssemblyPath = ResolvePath(request.Assembly);
-                var loadAssemblyPath = GetShadowCopyPath(resolvedAssemblyPath);
-                var asmEntry = ws.Assemblies?.FirstOrDefault(a =>
-                    string.Equals(a.Path, request.Assembly, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(Path.GetFileName(a.Path), Path.GetFileName(request.Assembly), StringComparison.OrdinalIgnoreCase));
-
-                if (asmEntry != null && asmEntry.DependencyFolders != null)
-                {
-                    foreach (var dep in asmEntry.DependencyFolders)
-                    {
-                        var depPath = ResolvePath(dep);
-                        if (Directory.Exists(depPath))
-                        {
-                            searchDirs.Add(depPath);
-                            shadowDirs.Add(depPath);
-                        }
-                    }
-                }
-
-                if (File.Exists(resolvedAssemblyPath))
-                {
-                    var dir = Path.GetDirectoryName(resolvedAssemblyPath);
-                    if (!string.IsNullOrEmpty(dir))
-                    {
-                        searchDirs.Add(dir);
-                        shadowDirs.Add(dir);
-                    }
-                }
-                else
-                {
-                    return new PluginInvokeResponse
-                    {
-                        RequestId = request.RequestId,
-                        Status = HealthStatus.Error,
-                        Message = $"Assembly not found: {request.Assembly}",
-                        TraceLines = new System.Collections.Generic.List<string> { $"Assembly not found: {request.Assembly}" }
-                    };
-                }
-
-                ResolveEventHandler resolver = (s, e) =>
-                {
-                    var name = new AssemblyName(e.Name).Name + ".dll";
-                    foreach (var dir in searchDirs.Distinct(StringComparer.OrdinalIgnoreCase))
-                    {
-                        var candidate = Path.Combine(dir, name);
-                        if (File.Exists(candidate))
-                        {
-                            try
-                            {
-                                var candidateToLoad = ShouldShadowCopy(candidate, shadowDirs)
-                                    ? GetShadowCopyPath(candidate)
-                                    : candidate;
-                                return Assembly.LoadFrom(candidateToLoad);
-                            }
-                            catch { }
-                        }
-                    }
-                    return null;
-                };
-
-                Assembly? loadedAssembly = null;
-                Type? pluginType = null;
-                AppDomain.CurrentDomain.AssemblyResolve += resolver;
-                try
-                {
-                    loadedAssembly = Assembly.LoadFrom(loadAssemblyPath);
-                    trace.Add($"Loaded assembly: {loadedAssembly.FullName}");
-                    try
-                    {
-                        var typeList = new System.Collections.Generic.List<string>();
-                        var types = loadedAssembly.GetTypes().Where(t => t.IsClass).Select(t => t.FullName ?? t.Name).ToList();
-                        typeList.AddRange(types);
-                        var limited = typeList.Take(20).ToList();
-                        trace.Add($"Types in assembly ({typeList.Count}):");
-                        foreach (var name in limited)
-                        {
-                            trace.Add($" - {name}");
-                        }
-                    }
-                    catch (ReflectionTypeLoadException rtle)
-                    {
-                        if (rtle.Types != null)
-                        {
-                            var typeList = rtle.Types.Where(t => t != null && t.IsClass).Select(t => t!.FullName ?? t.Name).ToList();
-                            var limited = typeList.Take(20).ToList();
-                            trace.Add($"Types in assembly ({typeList.Count}):");
-                            foreach (var name in limited)
-                            {
-                                trace.Add($" - {name}");
-                            }
-                        }
-                        if (rtle.LoaderExceptions != null)
-                        {
-                            trace.Add("Loader exceptions during type enumeration:");
-                            foreach (var ex in rtle.LoaderExceptions.Where(ex => ex != null).Take(5))
-                            {
-                                trace.Add($" - {ex.GetType().Name}: {ex.Message}");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        trace.Add($"Type enumeration failed: {ex.Message}");
-                    }
-                    pluginType = loadedAssembly.GetType(request.TypeName, throwOnError: false, ignoreCase: true);
-                    if (pluginType == null)
-                    {
-                        trace.Add($"Type not found: {request.TypeName}");
-
-                        var typeNames = new System.Collections.Generic.List<string>();
-                        try
-                        {
-                            typeNames.AddRange(loadedAssembly
-                                .GetTypes()
-                                .Where(t => t.IsClass)
-                                .Select(t => t.FullName ?? t.Name));
-                        }
-                        catch (ReflectionTypeLoadException rtle)
-                        {
-                            if (rtle.Types != null)
-                            {
-                                foreach (var t in rtle.Types.Where(t => t != null && t.IsClass))
-                                {
-                                    typeNames.Add(t!.FullName ?? t.Name);
-                                }
-                            }
-                            if (rtle.LoaderExceptions != null)
-                            {
-                                trace.Add("Loader exceptions:");
-                                foreach (var ex in rtle.LoaderExceptions.Where(ex => ex != null).Take(5))
-                                {
-                                    trace.Add($" - {ex.GetType().Name}: {ex.Message}");
-                                }
-                            }
-                        }
-
-                        var candidates = typeNames.Take(10).ToList();
-                        if (candidates.Count > 0)
-                        {
-                            trace.Add("Types in assembly (first 10):");
-                            foreach (var c in candidates) trace.Add($" - {c}");
-                        }
-
-                        // Try name-only match as a fallback
-                        var byName = typeNames.FirstOrDefault(t => string.Equals(Path.GetFileNameWithoutExtension(t), request.TypeName, StringComparison.OrdinalIgnoreCase) || string.Equals(t?.Split('.').LastOrDefault(), request.TypeName, StringComparison.OrdinalIgnoreCase));
-                        if (!string.IsNullOrEmpty(byName))
-                        {
-                            trace.Add($"Found similar type by name: {byName}");
-                        }
-
-                        return new PluginInvokeResponse
-                        {
-                            RequestId = request.RequestId,
-                            Status = HealthStatus.Error,
-                            Message = $"Type not found: {request.TypeName}",
-                            TraceLines = trace
-                        };
-                    }
-
-                    trace.Add($"Found type: {pluginType.FullName}");
-                    var tracingService = new StubTracingService(line => trace.Add(line));
-                    DataverseContext? conversionContext = null;
-                    if (TryGetConversionContext(out var resolvedContext, out _))
-                    {
-                        conversionContext = resolvedContext;
-                    }
-
-                    var writeMode = RunnerWriteMode.FakeWrites;
-                    if (!string.IsNullOrWhiteSpace(request.WriteMode))
-                    {
-                        if (string.Equals(request.WriteMode, "LiveWrites", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(request.WriteMode, "Live", StringComparison.OrdinalIgnoreCase))
-                        {
-                            writeMode = RunnerWriteMode.LiveWrites;
-                        }
-                        else if (string.Equals(request.WriteMode, "FakeWrites", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(request.WriteMode, "Fake", StringComparison.OrdinalIgnoreCase))
-                        {
-                            writeMode = RunnerWriteMode.FakeWrites;
-                        }
-                    }
-
-                    var attributeResolver = new AttributeMetadataResolver(
-                        conversionContext?.MetadataCache,
-                        _environment,
-                        request.AccessToken,
-                        HttpClient,
-                        trace);
-                    var orgService = new RunnerOrganizationService(
-                        line => trace.Add(line),
-                        HttpClient,
-                        string.IsNullOrWhiteSpace(request.OrgUrl) ? _environment?.OrgUrl : request.OrgUrl,
-                        request.AccessToken,
-                        writeMode,
-                        logicalName =>
-                        {
-                            var entity = conversionContext?.MetadataCache?.GetEntityFromLogicalName(logicalName);
-                            return entity?.EntitySetName;
-                        },
-                        attributeResolver);
-                    trace.Add($"OrgService write mode: {writeMode}");
-                    var orgFactory = new StubOrganizationServiceFactory(orgService);
-                    var primaryName = string.IsNullOrWhiteSpace(request.PrimaryEntityName) ? "entity" : request.PrimaryEntityName;
-                    var context = new StubPluginExecutionContext
-                    {
-                        MessageName = string.IsNullOrWhiteSpace(request.MessageName) ? "Create" : request.MessageName,
-                        PrimaryEntityName = primaryName,
-                        PrimaryEntityId = TryParseGuid(request.PrimaryEntityId),
-                        Stage = request.Stage <= 0 ? 40 : request.Stage,
-                        Mode = request.Mode,
-                        Depth = 1,
-                        OrganizationId = Guid.NewGuid(),
-                        OrganizationName = "DataverseDebugger",
-                        UserId = Guid.NewGuid(),
-                        InitiatingUserId = Guid.NewGuid(),
-                        BusinessUnitId = Guid.NewGuid(),
-                        CorrelationId = Guid.NewGuid(),
-                        OperationId = Guid.NewGuid(),
-                        OperationCreatedOn = DateTime.UtcNow,
-                        RequestId = Guid.NewGuid(),
-                        IsInTransaction = false,
-                        IsExecutingOffline = false,
-                        IsOfflinePlayback = false
-                    };
-
-                    var populatedFromHttp = TryPopulateContextFromHttp(request, context, trace);
-
-                    // Target and images from JSON (fallback to empty target)
-                    if (!populatedFromHttp || !context.InputParameters.Contains("Target"))
-                    {
-                        var target = ParseEntityFromJson(request.TargetJson, primaryName, context.PrimaryEntityId, attributeResolver, trace, "Target");
-                        if (target == null && !string.IsNullOrWhiteSpace(primaryName))
-                        {
-                            target = new Entity(primaryName);
-                            if (context.PrimaryEntityId != Guid.Empty)
-                            {
-                                target.Id = context.PrimaryEntityId;
-                            }
-                        }
-                        if (target != null)
-                        {
-                            context.InputParameters["Target"] = target;
-                        }
-                    }
-                    if (request.Images != null && request.Images.Count > 0)
-                    {
-                        foreach (var image in request.Images)
-                        {
-                            if (image == null || string.IsNullOrWhiteSpace(image.EntityJson)) continue;
-                            var imageType = image.ImageType ?? string.Empty;
-                            var isPre = imageType.Equals("PreImage", StringComparison.OrdinalIgnoreCase) ||
-                                imageType.Equals("Both", StringComparison.OrdinalIgnoreCase);
-                            var isPost = imageType.Equals("PostImage", StringComparison.OrdinalIgnoreCase) ||
-                                imageType.Equals("Both", StringComparison.OrdinalIgnoreCase);
-                            if (!isPre && !isPost) continue;
-
-                            var alias = string.IsNullOrWhiteSpace(image.EntityAlias)
-                                ? (isPost && !isPre ? "PostImage" : "PreImage")
-                                : image.EntityAlias;
-
-                            if (isPre)
-                            {
-                                var pre = ParseEntityFromJson(image.EntityJson, primaryName, Guid.Empty, attributeResolver, trace, $"PreImage:{alias}");
-                                if (pre != null)
-                                {
-                                    context.PreEntityImages[alias] = pre;
-                                }
-                            }
-
-                            if (isPost)
-                            {
-                                var post = (isPre && isPost)
-                                    ? ParseEntityFromJson(image.EntityJson, primaryName, Guid.Empty, attributeResolver, trace, $"PostImage:{alias}")
-                                    : ParseEntityFromJson(image.EntityJson, primaryName, Guid.Empty, attributeResolver, trace, $"PostImage:{alias}");
-                                if (post != null)
-                                {
-                                    context.PostEntityImages[alias] = post;
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        var preImage = ParseEntityFromJson(request.PreImageJson, primaryName, Guid.Empty, attributeResolver, trace, "PreImage");
-                        if (preImage != null)
-                        {
-                            context.PreEntityImages["PreImage"] = preImage;
-                        }
-                        var postImage = ParseEntityFromJson(request.PostImageJson, primaryName, Guid.Empty, attributeResolver, trace, "PostImage");
-                        if (postImage != null)
-                        {
-                            context.PostEntityImages["PostImage"] = postImage;
-                        }
-                    }
-
-                    var logDelegate = new Action<string>(trace.Add);
-                    var loggerFactory = new StubLoggerFactory(logDelegate);
-                    var logger = loggerFactory.CreateLogger(pluginType.FullName ?? "Plugin");
-                    var telemetryLogger = new StubPluginTelemetryLogger(logDelegate);
-                    var notificationService = new StubServiceEndpointNotificationService(logDelegate);
-                    var featureControlService = new StubFeatureControlService(logDelegate);
-
-                    var services = new System.Collections.Generic.Dictionary<Type, object>
-                    {
-                        { typeof(ITracingService), tracingService },
-                        { typeof(IOrganizationServiceFactory), orgFactory },
-                        { typeof(IOrganizationService), orgService },
-                        { typeof(IPluginExecutionContext), context },
-                        { typeof(ILoggerFactory), loggerFactory },
-                        { typeof(ILogger), logger },
-                        { typeof(Microsoft.Xrm.Sdk.PluginTelemetry.ILogger), telemetryLogger },
-                        { typeof(IServiceEndpointNotificationService), notificationService },
-                        { typeof(IFeatureControlService), featureControlService }
-                    };
-
-                    var serviceProvider = new StubServiceProvider(services);
-                    trace.Add("Invoking plugin Execute(...)");
-                    try
-                    {
-                        var plugin = CreatePluginInstance(pluginType, request.UnsecureConfiguration, request.SecureConfiguration, trace);
-                        if (plugin != null)
-                        {
-                            plugin.Execute(serviceProvider);
-                            trace.Add("Plugin execution completed.");
-                        }
-                        else
-                        {
-                            trace.Add("Type does not implement IPlugin; cannot execute.");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        trace.Add($"Plugin execution threw: {ex.GetType().Name}: {ex.Message}");
-                        RunnerLogger.Log(RunnerLogCategory.Errors, RunnerLogLevel.Info,
-                            $"Plugin execution threw: {ex.GetType().Name}: {ex.Message}");
-                        var stack = ex.StackTrace;
-                        if (stack != null && stack.Length > 0)
-                        {
-                            trace.Add(stack);
-                            RunnerLogger.Log(RunnerLogCategory.Errors, RunnerLogLevel.Info, stack);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    trace.Add($"Assembly load/type resolution failed: {ex.Message}");
-                    return new PluginInvokeResponse
-                    {
-                        RequestId = request.RequestId,
-                        Status = HealthStatus.Error,
-                        Message = $"Plugin load failed: {ex.Message}",
-                        TraceLines = trace
-                    };
-                }
-                finally
-                {
-                    AppDomain.CurrentDomain.AssemblyResolve -= resolver;
-                }
-
-                return new PluginInvokeResponse
-                {
-                    RequestId = request.RequestId,
-                    Status = HealthStatus.Ready,
-                    Message = $"Stubbed invoke for {request.TypeName}",
-                    TraceLines = trace
-                };
-            }
-            catch (Exception ex)
-            {
-                return new PluginInvokeResponse
-                {
-                    Status = HealthStatus.Error,
-                    Message = $"Plugin invoke failed: {ex.Message}"
-                };
-            }
-            finally
-            {
-                sw.Stop();
-                LogSlowCommand("executePlugin", sw.Elapsed, BuildPluginSummary(request));
-            }
+            return PluginInvocationEngine.Invoke(payload, out _);
         }
 
         private static async Task<ExecuteResponse> HandleExecuteAsync(string? payload, NamedPipeServerStream stream, CancellationToken cancellationToken)
@@ -1483,7 +1069,7 @@ namespace DataverseDebugger.Runner
             };
         }
 
-        private static string ResolvePath(string path)
+        internal static string ResolvePath(string path)
         {
             if (string.IsNullOrWhiteSpace(path))
             {
@@ -1752,7 +1338,7 @@ namespace DataverseDebugger.Runner
             return collection;
         }
 
-        private static Entity? ParseEntityFromJson(
+        internal static Entity? ParseEntityFromJson(
             string? json,
             string defaultLogicalName,
             Guid defaultId,
@@ -2310,7 +1896,7 @@ namespace DataverseDebugger.Runner
             return false;
         }
 
-        private static Guid TryParseGuid(string? input)
+        internal static Guid TryParseGuid(string? input)
         {
             if (Guid.TryParse(input, out var guid))
             {
@@ -2319,7 +1905,7 @@ namespace DataverseDebugger.Runner
             return Guid.Empty;
         }
 
-        private static void EnsureSdkAssemblyResolver()
+        internal static void EnsureSdkAssemblyResolver()
         {
             if (_sdkResolverRegistered) return;
             _sdkResolverRegistered = true;
@@ -2381,7 +1967,7 @@ namespace DataverseDebugger.Runner
             public long Length { get; set; }
         }
 
-        private static string GetShadowCopyPath(string originalPath)
+        internal static string GetShadowCopyPath(string originalPath)
         {
             if (string.IsNullOrWhiteSpace(originalPath))
             {
@@ -2584,7 +2170,7 @@ namespace DataverseDebugger.Runner
             source.CopyTo(dest);
         }
 
-        private static bool ShouldShadowCopy(string candidatePath, System.Collections.Generic.IEnumerable<string> shadowDirs)
+        internal static bool ShouldShadowCopy(string candidatePath, System.Collections.Generic.IEnumerable<string> shadowDirs)
         {
             foreach (var dir in shadowDirs)
             {

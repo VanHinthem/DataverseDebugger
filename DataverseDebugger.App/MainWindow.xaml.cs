@@ -1187,7 +1187,7 @@ namespace DataverseDebugger.App
                 {
                     _ = Dispatcher.InvokeAsync(() =>
                     {
-                        SetWriteModeSilently("FakeWrites");
+                        SetExecutionModeSilently("Hybrid", allowLiveWrites: false);
                         SaveAppSettings();
                     }, DispatcherPriority.Background);
                     return;
@@ -1332,6 +1332,15 @@ namespace DataverseDebugger.App
             _suppressRunnerSettingsHandling = true;
             _runnerSettings.WriteMode = mode;
             _lastWriteMode = mode;
+            _suppressRunnerSettingsHandling = false;
+        }
+
+        private void SetExecutionModeSilently(string mode, bool allowLiveWrites)
+        {
+            _suppressRunnerSettingsHandling = true;
+            _runnerSettings.ExecutionMode = mode;
+            _runnerSettings.AllowLiveWrites = allowLiveWrites;
+            _lastWriteMode = _runnerSettings.WriteMode;
             _suppressRunnerSettingsHandling = false;
         }
 

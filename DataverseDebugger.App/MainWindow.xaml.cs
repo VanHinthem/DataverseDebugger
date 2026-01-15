@@ -51,6 +51,8 @@ namespace DataverseDebugger.App
         private readonly RunnerLogSettingsModel _runnerLogSettings;
         private readonly RunnerSettingsModel _runnerSettings;
         private readonly AppearanceSettingsModel _appearanceSettings;
+        private readonly string _defaultExecutionMode;
+        private readonly bool _defaultAllowLiveWrites;
         private readonly DispatcherTimer _runnerLogTimer = new DispatcherTimer();
         private long _runnerLogLastId;
         private bool _runnerLogPollInProgress;
@@ -96,6 +98,8 @@ namespace DataverseDebugger.App
             _runnerLogSettings = appSettings.RunnerLog;
             _runnerSettings = appSettings.Runner;
             _appearanceSettings = appSettings.Appearance;
+            _defaultExecutionMode = _runnerSettings.ExecutionMode;
+            _defaultAllowLiveWrites = _runnerSettings.AllowLiveWrites;
             
             // Initialize theme before creating views
             ThemeService.Initialize(_appearanceSettings.IsDarkMode);
@@ -1472,9 +1476,12 @@ namespace DataverseDebugger.App
             model.Browser.OpenDevToolsOnActivate = _browserSettings.OpenDevToolsOnActivate;
             model.RunnerLog.Level = _runnerLogSettings.Level;
             model.RunnerLog.ApplyCategories(_runnerLogSettings.ToCategories());
-            model.Runner.ExecutionMode = _runnerSettings.ExecutionMode;
-            model.Runner.AllowLiveWrites = _runnerSettings.AllowLiveWrites;
-            model.Runner.WriteMode = _runnerSettings.WriteMode;
+            model.Runner.ExecutionMode = _defaultExecutionMode;
+            model.Runner.AllowLiveWrites = _defaultAllowLiveWrites;
+            model.Runner.WriteMode = _defaultAllowLiveWrites &&
+                                     string.Equals(_defaultExecutionMode, "Online", StringComparison.OrdinalIgnoreCase)
+                ? "LiveWrites"
+                : "FakeWrites";
             model.Appearance.IsDarkMode = _appearanceSettings.IsDarkMode;
             AppSettingsService.Save(model);
         }

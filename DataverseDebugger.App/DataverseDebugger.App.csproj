@@ -57,6 +57,23 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <Target Name="CopyRunnerOnBuild" AfterTargets="Build" Condition="'$(IsPublishing)' != 'true'">
+    <MSBuild Projects="$(RunnerProjectPath)" Targets="Build" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_RunnerTargetOutputs" />
+    </MSBuild>
+    <PropertyGroup>
+      <RunnerOutputRoot>..\DataverseDebugger.Runner\bin\$(Configuration)\$(RunnerTargetFramework)\</RunnerOutputRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <RunnerBuildFiles Include="$(RunnerOutputRoot)**\*.*"
+                        Exclude="$(RunnerOutputRoot)**\*.xml" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutDir)$(RunnerPublishSubdir)" />
+    <Copy SourceFiles="@(RunnerBuildFiles)"
+          DestinationFiles="@(RunnerBuildFiles->'$(OutDir)$(RunnerPublishSubdir)\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
   <UsingTask TaskName="ZipDirectory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" />
 
   <Target Name="ZipPublishOutput"

@@ -215,6 +215,15 @@ namespace DataverseDebugger.App.Services
                 }
             }
 
+            var customActionNames = await DownloadCustomActionOperationNamesAsync(orgUrl, accessToken).ConfigureAwait(false);
+            if (customActionNames != null)
+            {
+                foreach (var name in customActionNames)
+                {
+                    RecordOperationSource(snapshot, name, OperationParameterSource.CustomAction);
+                }
+            }
+
             return snapshot;
         }
 
@@ -546,6 +555,60 @@ namespace DataverseDebugger.App.Services
             catch (Exception ex)
             {
                 LogService.Append($"[MetadataCacheService] Custom API list download failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static async Task<List<string>?> DownloadCustomActionOperationNamesAsync(string orgUrl, string accessToken)
+        {
+            try
+            {
+                var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var nextLink = BuildWebApiUrl(orgUrl, "workflows?$select=name,uniquename&$filter=category eq 3");
+
+                while (!string.IsNullOrWhiteSpace(nextLink))
+                {
+                    using var document = await SendOperationRequestAsync(nextLink, accessToken).ConfigureAwait(false);
+                    if (document == null)
+                    {
+                        break;
+                    }
+
+                    if (document.RootElement.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var element in value.EnumerateArray())
+                        {
+                            if (element.TryGetProperty("uniquename", out var uniqueProp) && uniqueProp.ValueKind == JsonValueKind.String)
+                            {
+                                var uniqueName = uniqueProp.GetString();
+                                if (!string.IsNullOrWhiteSpace(uniqueName))
+                                {
+                                    results.Add(uniqueName);
+                                }
+                            }
+
+                            if (element.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String)
+                            {
+                                var name = nameProp.GetString();
+                                if (!string.IsNullOrWhiteSpace(name))
+                                {
+                                    results.Add(name);
+                                }
+                            }
+                        }
+                    }
+
+                    nextLink = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
+                        ? next.GetString()
+                        : null;
+                }
+
+                LogService.Append($"[MetadataCacheService] Custom action list download complete. Total={results.Count}.");
+                return results.ToList();
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[MetadataCacheService] Custom action list download failed: {ex.Message}");
                 return null;
             }
         }

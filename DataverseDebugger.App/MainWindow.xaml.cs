@@ -1187,7 +1187,7 @@ namespace DataverseDebugger.App
                 {
                     _ = Dispatcher.InvokeAsync(() =>
                     {
-                        SetWriteModeSilently("FakeWrites");
+                        SetExecutionModeSilently("Hybrid", allowLiveWrites: false);
                         SaveAppSettings();
                     }, DispatcherPriority.Background);
                     return;
@@ -1335,6 +1335,15 @@ namespace DataverseDebugger.App
             _suppressRunnerSettingsHandling = false;
         }
 
+        private void SetExecutionModeSilently(string mode, bool allowLiveWrites)
+        {
+            _suppressRunnerSettingsHandling = true;
+            _runnerSettings.ExecutionMode = mode;
+            _runnerSettings.AllowLiveWrites = allowLiveWrites;
+            _lastWriteMode = _runnerSettings.WriteMode;
+            _suppressRunnerSettingsHandling = false;
+        }
+
         private static bool IsLiveWrites(string? mode)
         {
             return string.Equals(mode, "LiveWrites", StringComparison.OrdinalIgnoreCase) ||
@@ -1375,6 +1384,8 @@ namespace DataverseDebugger.App
             model.Browser.OpenDevToolsOnActivate = _browserSettings.OpenDevToolsOnActivate;
             model.RunnerLog.Level = _runnerLogSettings.Level;
             model.RunnerLog.ApplyCategories(_runnerLogSettings.ToCategories());
+            model.Runner.ExecutionMode = _runnerSettings.ExecutionMode;
+            model.Runner.AllowLiveWrites = _runnerSettings.AllowLiveWrites;
             model.Runner.WriteMode = _runnerSettings.WriteMode;
             model.Appearance.IsDarkMode = _appearanceSettings.IsDarkMode;
             AppSettingsService.Save(model);

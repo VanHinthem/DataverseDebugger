@@ -29,7 +29,7 @@ public IOrganizationService? CreateLiveService(string? orgUrl, string? accessTok
                 // No MSAL flows are invoked, so there is no interactive prompt.
                 Func<string, Task<string>> tokenProvider = (string instance) =>
                 {
-                    return Task.FromResult(accessToken);
+                    return Task.FromResult(accessToken ?? string.Empty);
                 };
 
                 ServiceClient client = new ServiceClient(instanceUri, tokenProvider, useUniqueInstance: true);

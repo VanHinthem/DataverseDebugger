@@ -1375,6 +1375,8 @@ namespace DataverseDebugger.App
             model.Browser.OpenDevToolsOnActivate = _browserSettings.OpenDevToolsOnActivate;
             model.RunnerLog.Level = _runnerLogSettings.Level;
             model.RunnerLog.ApplyCategories(_runnerLogSettings.ToCategories());
+            model.Runner.ExecutionMode = _runnerSettings.ExecutionMode;
+            model.Runner.AllowLiveWrites = _runnerSettings.AllowLiveWrites;
             model.Runner.WriteMode = _runnerSettings.WriteMode;
             model.Appearance.IsDarkMode = _appearanceSettings.IsDarkMode;
             AppSettingsService.Save(model);

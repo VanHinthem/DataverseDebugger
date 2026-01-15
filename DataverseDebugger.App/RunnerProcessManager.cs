@@ -26,7 +26,7 @@ namespace DataverseDebugger.App
         /// Starts the runner process if not already running.
         /// </summary>
         /// <returns>True if the process started successfully; false otherwise.</returns>
-        public async Task<bool> StartAsync()
+        public async Task<bool> StartAsync(bool allowLiveWrites)
         {
             if (_process != null && !_process.HasExited)
             {
@@ -47,6 +47,7 @@ namespace DataverseDebugger.App
                 CreateNoWindow = true
             };
             startInfo.Environment["DATAVERSE_DEBUGGER_HOST_PID"] = Environment.ProcessId.ToString();
+            startInfo.Environment["DATAVERSE_DEBUGGER_ALLOW_LIVE_WRITES"] = allowLiveWrites ? "true" : "false";
 
             _process = Process.Start(startInfo);
             if (_process == null || _process.HasExited)
@@ -66,23 +67,23 @@ namespace DataverseDebugger.App
         /// Ensures the runner process is running, starting it if necessary.
         /// </summary>
         /// <returns>True if the process is running; false otherwise.</returns>
-        public async Task<bool> EnsureRunningAsync()
+        public async Task<bool> EnsureRunningAsync(bool allowLiveWrites)
         {
             if (_process != null && !_process.HasExited)
             {
                 return true;
             }
-            return await StartAsync().ConfigureAwait(false);
+            return await StartAsync(allowLiveWrites).ConfigureAwait(false);
         }
 
         /// <summary>
         /// Stops the current runner process and starts a new one.
         /// </summary>
         /// <returns>True if the restart succeeded; false otherwise.</returns>
-        public async Task<bool> RestartAsync()
+        public async Task<bool> RestartAsync(bool allowLiveWrites)
         {
             Stop();
-            return await StartAsync().ConfigureAwait(false);
+            return await StartAsync(allowLiveWrites).ConfigureAwait(false);
         }
 
         /// <summary>

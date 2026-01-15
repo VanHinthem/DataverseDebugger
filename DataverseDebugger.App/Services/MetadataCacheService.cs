@@ -232,7 +232,7 @@ namespace DataverseDebugger.App.Services
             try
             {
                 var items = new List<OperationParameterSnapshotItem>();
-                var nextLink = BuildWebApiUrl(orgUrl, "customapirequestparameters?$select=uniquename,name,type,isoptional&$expand=CustomAPIId($select=customapiid,uniquename)");
+                var nextLink = BuildWebApiUrl(orgUrl, "customapirequestparameters?$select=uniquename,name,type,isoptional&$expand=CustomAPIId($select=customapiid,uniquename)&$filter=statuscode eq 1");
 
                 while (!string.IsNullOrWhiteSpace(nextLink))
                 {
@@ -519,7 +519,7 @@ namespace DataverseDebugger.App.Services
             try
             {
                 var results = new List<string>();
-                var nextLink = BuildWebApiUrl(orgUrl, "customapis?$select=uniquename");
+                var nextLink = BuildWebApiUrl(orgUrl, "customapis?$select=uniquename&$filter=statuscode eq 1");
 
                 while (!string.IsNullOrWhiteSpace(nextLink))
                 {
@@ -564,7 +564,25 @@ namespace DataverseDebugger.App.Services
             try
             {
                 var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var nextLink = BuildWebApiUrl(orgUrl, "workflows?$select=name,uniquename&$filter=category eq 3");
+                var fetchXml = """
+<fetch distinct="true">
+  <entity name="workflow">
+    <attribute name="name" />
+    <filter type="and">
+      <condition attribute="category" operator="eq" value="3" />
+      <condition attribute="type" operator="eq" value="1" />
+      <condition attribute="componentstate" operator="eq" value="0" />
+      <condition attribute="statuscode" operator="eq" value="2" />
+    </filter>
+    <link-entity name="sdkmessage" from="sdkmessageid" to="sdkmessageid" link-type="inner" alias="sdkmessage">
+      <attribute name="name" />
+    </link-entity>
+  </entity>
+</fetch>
+""";
+
+                var encodedFetch = Uri.EscapeDataString(fetchXml);
+                var nextLink = BuildWebApiUrl(orgUrl, "workflows?fetchXml=" + encodedFetch);
 
                 while (!string.IsNullOrWhiteSpace(nextLink))
                 {
@@ -578,21 +596,10 @@ namespace DataverseDebugger.App.Services
                     {
                         foreach (var element in value.EnumerateArray())
                         {
-                            var uniqueName = element.TryGetProperty("uniquename", out var uniqueProp) && uniqueProp.ValueKind == JsonValueKind.String
-                                ? uniqueProp.GetString()
-                                : null;
-                            if (!string.IsNullOrWhiteSpace(uniqueName))
+                            var messageName = GetStringProperty(element, "sdkmessage.name");
+                            if (!string.IsNullOrWhiteSpace(messageName))
                             {
-                                results.Add(uniqueName);
-                                continue;
-                            }
-
-                            var name = element.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String
-                                ? nameProp.GetString()
-                                : null;
-                            if (!string.IsNullOrWhiteSpace(name))
-                            {
-                                results.Add(name);
+                                results.Add(messageName);
                             }
                         }
                     }

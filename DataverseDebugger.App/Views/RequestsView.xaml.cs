@@ -381,6 +381,7 @@ namespace DataverseDebugger.App.Views
                 OrgUrl = _activeProfile?.OrgUrl,
                 AccessToken = _activeToken,
                 WriteMode = _runnerSettings?.WriteMode,
+                ExecutionMode = _runnerSettings?.ExecutionMode,
                 UnsecureConfiguration = step.UnsecureConfiguration,
                 SecureConfiguration = step.SecureConfiguration,
                 HttpRequest = new InterceptedHttpRequest

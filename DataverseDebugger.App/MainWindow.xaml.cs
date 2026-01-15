@@ -531,7 +531,7 @@ namespace DataverseDebugger.App
         {
             try
             {
-                var started = await _runnerProcess.EnsureRunningAsync();
+                var started = await _runnerProcess.EnsureRunningAsync(_runnerSettings.AllowLiveWrites);
                 if (!started)
                 {
                     _runnerVm.StatusText = "Failed to start runner process.";
@@ -1195,6 +1195,7 @@ namespace DataverseDebugger.App
 
                 SetExecutionModeSilently(executionMode, allowLiveWrites: false);
                 SaveAppSettings();
+                await RestartRunnerForSettingsChangeAsync();
                 return;
             }
 
@@ -1229,6 +1230,10 @@ namespace DataverseDebugger.App
             }
 
             SaveAppSettings();
+            if (_runnerSettings.AllowLiveWrites != previousAllowLiveWrites)
+            {
+                await RestartRunnerForSettingsChangeAsync();
+            }
         }
 
         private async Task<bool> DisableAsyncStepsForActiveEnvironmentAsync()
@@ -1347,6 +1352,55 @@ namespace DataverseDebugger.App
             await ReenableAsyncStepsForProfileAsync(previousProfile, "Re-enabling async steps...");
             SetWriteModeSilently("FakeWrites");
             SaveAppSettings();
+        }
+
+        private async Task RestartRunnerForSettingsChangeAsync()
+        {
+            if (_activeProfile == null || !_environmentReady || _isEnvironmentLoading)
+            {
+                return;
+            }
+
+            ShowRunnerReloadToast("Runner reloading...");
+            _browserView.NotifyRunnerRestarted();
+            StopRunnerLogPolling();
+            ResetRunnerLogState();
+            _runnerProcess.Stop();
+
+            var started = await EnsureRunnerAsync();
+            if (!started)
+            {
+                HandleRunnerRestartFailure();
+                return;
+            }
+
+            await _runnerView.ApplyEnvironmentAsync(_activeProfile);
+            var ready = await WaitForRunnerReadyAsync(TimeSpan.FromSeconds(10));
+            if (!ready)
+            {
+                HandleRunnerRestartFailure();
+                return;
+            }
+
+            StartHealthTimer();
+            await ApplyRunnerLogConfigAsync();
+            StartRunnerLogPolling();
+            HideRunnerReloadToast();
+        }
+
+        private void HandleRunnerRestartFailure()
+        {
+            HideRunnerReloadToast();
+            _runnerVm.StatusText = "Runner restart failed.";
+            SetBadges(HealthStatus.Error);
+
+            SetExecutionModeSilently("Hybrid", allowLiveWrites: false);
+            SaveAppSettings();
+            MessageBox.Show(
+                "Runner restart failed. Execution mode reverted to Hybrid and live writes were disabled.",
+                "Runner",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
         }
 
         private void SetWriteModeSilently(string mode)

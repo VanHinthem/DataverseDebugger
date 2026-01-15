@@ -215,6 +215,15 @@ namespace DataverseDebugger.App.Services
                 }
             }
 
+            var customActionNames = await DownloadCustomActionOperationNamesAsync(orgUrl, accessToken).ConfigureAwait(false);
+            if (customActionNames != null)
+            {
+                foreach (var name in customActionNames)
+                {
+                    RecordOperationSource(snapshot, name, OperationParameterSource.CustomAction);
+                }
+            }
+
             return snapshot;
         }
 
@@ -223,7 +232,7 @@ namespace DataverseDebugger.App.Services
             try
             {
                 var items = new List<OperationParameterSnapshotItem>();
-                var nextLink = BuildWebApiUrl(orgUrl, "customapirequestparameters?$select=uniquename,name,type,isoptional&$expand=CustomAPIId($select=customapiid,uniquename)");
+                var nextLink = BuildWebApiUrl(orgUrl, "customapirequestparameters?$select=uniquename,name,type,isoptional&$expand=CustomAPIId($select=customapiid,uniquename)&$filter=statuscode eq 1");
 
                 while (!string.IsNullOrWhiteSpace(nextLink))
                 {
@@ -510,7 +519,7 @@ namespace DataverseDebugger.App.Services
             try
             {
                 var results = new List<string>();
-                var nextLink = BuildWebApiUrl(orgUrl, "customapis?$select=uniquename");
+                var nextLink = BuildWebApiUrl(orgUrl, "customapis?$select=uniquename&$filter=statuscode eq 1");
 
                 while (!string.IsNullOrWhiteSpace(nextLink))
                 {
@@ -546,6 +555,66 @@ namespace DataverseDebugger.App.Services
             catch (Exception ex)
             {
                 LogService.Append($"[MetadataCacheService] Custom API list download failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static async Task<List<string>?> DownloadCustomActionOperationNamesAsync(string orgUrl, string accessToken)
+        {
+            try
+            {
+                var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var fetchXml = """
+<fetch distinct="true">
+  <entity name="workflow">
+    <attribute name="name" />
+    <filter type="and">
+      <condition attribute="category" operator="eq" value="3" />
+      <condition attribute="type" operator="eq" value="1" />
+      <condition attribute="componentstate" operator="eq" value="0" />
+      <condition attribute="statuscode" operator="eq" value="2" />
+    </filter>
+    <link-entity name="sdkmessage" from="sdkmessageid" to="sdkmessageid" link-type="inner" alias="sdkmessage">
+      <attribute name="name" />
+    </link-entity>
+  </entity>
+</fetch>
+""";
+
+                var encodedFetch = Uri.EscapeDataString(fetchXml);
+                var nextLink = BuildWebApiUrl(orgUrl, "workflows?fetchXml=" + encodedFetch);
+
+                while (!string.IsNullOrWhiteSpace(nextLink))
+                {
+                    using var document = await SendOperationRequestAsync(nextLink, accessToken).ConfigureAwait(false);
+                    if (document == null)
+                    {
+                        break;
+                    }
+
+                    if (document.RootElement.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var element in value.EnumerateArray())
+                        {
+                            var messageName = GetStringProperty(element, "sdkmessage.name");
+                            if (!string.IsNullOrWhiteSpace(messageName))
+                            {
+                                results.Add(messageName);
+                            }
+                        }
+                    }
+
+                    nextLink = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
+                        ? next.GetString()
+                        : null;
+                }
+
+                LogService.Append($"[MetadataCacheService] Custom action list download complete. Total={results.Count}.");
+                return results.ToList();
+            }
+            catch (Exception ex)
+            {
+                LogService.Append($"[MetadataCacheService] Custom action list download failed: {ex.Message}");
                 return null;
             }
         }

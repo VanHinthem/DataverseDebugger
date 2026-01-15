@@ -49,9 +49,10 @@
     </PropertyGroup>
     <ItemGroup>
       <RunnerPublishFiles Include="$(RunnerOutputRoot)**\*.*"
-                           Exclude="$(RunnerOutputRoot)**\*.xml" />
+                           Exclude="$(RunnerOutputRoot)**\*.xml;$(RunnerOutputRoot)**\publish\**" />
     </ItemGroup>
     <MakeDir Directories="$(PublishDir)$(RunnerPublishSubdir)" />
+    <RemoveDir Directories="$(PublishDir)$(RunnerPublishSubdir)\publish" Condition="Exists('$(PublishDir)$(RunnerPublishSubdir)\publish')" />
     <Copy SourceFiles="@(RunnerPublishFiles)"
           DestinationFiles="@(RunnerPublishFiles->'$(PublishDir)$(RunnerPublishSubdir)\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
@@ -66,9 +67,10 @@
     </PropertyGroup>
     <ItemGroup>
       <RunnerBuildFiles Include="$(RunnerOutputRoot)**\*.*"
-                        Exclude="$(RunnerOutputRoot)**\*.xml" />
+                        Exclude="$(RunnerOutputRoot)**\*.xml;$(RunnerOutputRoot)**\publish\**" />
     </ItemGroup>
     <MakeDir Directories="$(OutDir)$(RunnerPublishSubdir)" />
+    <RemoveDir Directories="$(OutDir)$(RunnerPublishSubdir)\publish" Condition="Exists('$(OutDir)$(RunnerPublishSubdir)\publish')" />
     <Copy SourceFiles="@(RunnerBuildFiles)"
           DestinationFiles="@(RunnerBuildFiles->'$(OutDir)$(RunnerPublishSubdir)\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />

@@ -67,7 +67,8 @@ namespace DataverseDebugger.App
         private readonly TimeSpan _runnerReloadMinVisible = TimeSpan.FromMilliseconds(800);
         private DispatcherTimer? _runnerReloadHideTimer;
         private bool _suppressRunnerSettingsHandling;
-        private string _lastWriteMode = "FakeWrites";
+        private string _lastExecutionMode = "Hybrid";
+        private bool _lastAllowLiveWrites;
         private bool _closeAfterCleanup;
         private bool _closeCleanupInProgress;
         private static readonly TimeSpan HealthCheckInterval = TimeSpan.FromSeconds(20);
@@ -103,7 +104,8 @@ namespace DataverseDebugger.App
             _browserSettings.PropertyChanged += OnBrowserSettingsChanged;
             _runnerLogSettings.PropertyChanged += OnRunnerLogSettingsChanged;
             _runnerSettings.PropertyChanged += OnRunnerSettingsChanged;
-            _lastWriteMode = _runnerSettings.WriteMode;
+            _lastExecutionMode = _runnerSettings.ExecutionMode;
+            _lastAllowLiveWrites = _runnerSettings.AllowLiveWrites;
             _runnerLogTimer.Interval = TimeSpan.FromSeconds(1);
             _runnerLogTimer.Tick += async (_, _) => await FetchRunnerLogsAsync();
             _runnerView = new RunnerView(_runnerClient, _runnerVm, _globalTrace);
@@ -1157,26 +1159,46 @@ namespace DataverseDebugger.App
                 return;
             }
 
-            if (!string.Equals(e.PropertyName, nameof(RunnerSettingsModel.WriteMode), StringComparison.Ordinal))
+            if (string.Equals(e.PropertyName, nameof(RunnerSettingsModel.ExecutionMode), StringComparison.Ordinal) ||
+                string.Equals(e.PropertyName, nameof(RunnerSettingsModel.AllowLiveWrites), StringComparison.Ordinal))
             {
-                return;
+                _ = HandleExecutionSettingsChangedAsync();
             }
-
-            _ = HandleWriteModeChangedAsync();
         }
 
-        private async Task HandleWriteModeChangedAsync()
+        private async Task HandleExecutionSettingsChangedAsync()
         {
-            var newMode = _runnerSettings.WriteMode;
-            if (string.Equals(newMode, _lastWriteMode, StringComparison.OrdinalIgnoreCase))
+            var executionMode = _runnerSettings.ExecutionMode;
+            var allowLiveWrites = _runnerSettings.AllowLiveWrites;
+
+            if (string.Equals(executionMode, _lastExecutionMode, StringComparison.OrdinalIgnoreCase) &&
+                allowLiveWrites == _lastAllowLiveWrites)
             {
                 return;
             }
 
-            var previousMode = _lastWriteMode;
-            _lastWriteMode = newMode;
+            var previousExecutionMode = _lastExecutionMode;
+            var previousAllowLiveWrites = _lastAllowLiveWrites;
+            _lastExecutionMode = executionMode;
+            _lastAllowLiveWrites = allowLiveWrites;
 
-            if (IsLiveWrites(newMode))
+            var isOnline = IsExecutionModeOnline(executionMode);
+            var wasLiveWrites = IsExecutionModeOnline(previousExecutionMode) && previousAllowLiveWrites;
+            var isLiveWrites = isOnline && allowLiveWrites;
+
+            if (!isOnline && allowLiveWrites)
+            {
+                if (wasLiveWrites)
+                {
+                    await ReenableAsyncStepsForProfileAsync(_activeProfile, "Re-enabling async steps...");
+                }
+
+                SetExecutionModeSilently(executionMode, allowLiveWrites: false);
+                SaveAppSettings();
+                return;
+            }
+
+            if (isLiveWrites && !wasLiveWrites)
             {
                 var proceed = MessageBox.Show(
                     "Live writes will disable async steps for the loaded plugin assemblies in the active environment. Continue?",
@@ -1196,12 +1218,12 @@ namespace DataverseDebugger.App
                 var disabled = await DisableAsyncStepsForActiveEnvironmentAsync();
                 if (!disabled)
                 {
-                    SetWriteModeSilently("FakeWrites");
+                    SetExecutionModeSilently(executionMode, allowLiveWrites: false);
                     SaveAppSettings();
                     return;
                 }
             }
-            else if (IsLiveWrites(previousMode))
+            else if (!isLiveWrites && wasLiveWrites)
             {
                 await ReenableAsyncStepsForProfileAsync(_activeProfile, "Re-enabling async steps...");
             }
@@ -1331,7 +1353,8 @@ namespace DataverseDebugger.App
         {
             _suppressRunnerSettingsHandling = true;
             _runnerSettings.WriteMode = mode;
-            _lastWriteMode = mode;
+            _lastExecutionMode = _runnerSettings.ExecutionMode;
+            _lastAllowLiveWrites = _runnerSettings.AllowLiveWrites;
             _suppressRunnerSettingsHandling = false;
         }
 
@@ -1340,14 +1363,14 @@ namespace DataverseDebugger.App
             _suppressRunnerSettingsHandling = true;
             _runnerSettings.ExecutionMode = mode;
             _runnerSettings.AllowLiveWrites = allowLiveWrites;
-            _lastWriteMode = _runnerSettings.WriteMode;
+            _lastExecutionMode = _runnerSettings.ExecutionMode;
+            _lastAllowLiveWrites = _runnerSettings.AllowLiveWrites;
             _suppressRunnerSettingsHandling = false;
         }
 
-        private static bool IsLiveWrites(string? mode)
+        private static bool IsExecutionModeOnline(string? mode)
         {
-            return string.Equals(mode, "LiveWrites", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(mode, "Live", StringComparison.OrdinalIgnoreCase);
+            return string.Equals(mode, "Online", StringComparison.OrdinalIgnoreCase);
         }
 
         private void OnRunnerLogSettingsChanged(object? sender, PropertyChangedEventArgs e)

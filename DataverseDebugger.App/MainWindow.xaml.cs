@@ -41,6 +41,7 @@ namespace DataverseDebugger.App
         private readonly BrowserView _browserView;
         private readonly RestBuilderView _restBuilderView;
         private readonly RequestsView _requestsView;
+        private readonly PluginsView _pluginsView;
         private readonly EnvironmentsView _environmentsView;
         private readonly SettingsView _settingsView;
         private readonly ObservableCollection<CapturedRequest> _requests = new();
@@ -111,6 +112,7 @@ namespace DataverseDebugger.App
             _runnerView = new RunnerView(_runnerClient, _runnerVm, _globalTrace);
             _browserView = new BrowserView(_runnerClient, _requests, _globalTrace, _captureSettings, _browserSettings);
             _requestsView = new RequestsView(_requests, _runnerClient, _captureSettings, _runnerSettings, _globalTrace);
+            _pluginsView = new PluginsView();
             _browserView.BeforeAutoProxyAsync = _requestsView.HandleAutoDebugBeforeProxyAsync;
             _browserView.AfterAutoProxyAsync = _requestsView.HandleAutoDebugAfterResponseAsync;
             _restBuilderView = new RestBuilderView(_runnerClient, _requests, _globalTrace, _captureSettings, _browserSettings);
@@ -362,6 +364,7 @@ namespace DataverseDebugger.App
             SetNavEnabled(NavBrowser, ready);
             SetNavEnabled(NavRestBuilder, ready);
             SetNavEnabled(NavRequests, ready);
+            SetNavEnabled(NavPlugins, ready);
             SetNavEnabled(NavRunner, ready);
         }
 
@@ -551,6 +554,7 @@ namespace DataverseDebugger.App
         private void OnNavBrowser(object sender, RoutedEventArgs e) => ShowSection("Browser", NavBrowser);
         private void OnNavRestBuilder(object sender, RoutedEventArgs e) => ShowSection("REST Builder", NavRestBuilder);
         private void OnNavRequests(object sender, RoutedEventArgs e) => ShowSection("Requests", NavRequests);
+        private void OnNavPlugins(object sender, RoutedEventArgs e) => ShowSection("Plugins", NavPlugins);
         private void OnNavEnvironments(object sender, RoutedEventArgs e) => ShowSection("Environments", NavEnvironments);
         private void OnNavRunner(object sender, RoutedEventArgs e) => ShowSection("Runner", NavRunner);
         private void OnNavSettings(object sender, RoutedEventArgs e) => ShowSection("Settings", NavSettings);
@@ -598,6 +602,10 @@ namespace DataverseDebugger.App
                 case "Requests":
                     SectionDescription.Text = "Captured requests and runner responses.";
                     targetView = _requestsView;
+                    break;
+                case "Plugins":
+                    SectionDescription.Text = "Selected plugin registrations for the active environment.";
+                    targetView = _pluginsView;
                     break;
                 case "Environments":
                     SectionDescription.Text = "Manage Dataverse environments.";
@@ -695,7 +703,7 @@ namespace DataverseDebugger.App
 
         private void SetNavSelection(Button selected)
         {
-            foreach (var btn in new[] { NavBrowser, NavRestBuilder, NavRequests, NavEnvironments, NavRunner, NavSettings })
+            foreach (var btn in new[] { NavBrowser, NavRestBuilder, NavRequests, NavPlugins, NavEnvironments, NavRunner, NavSettings })
             {
                 if (btn == null) continue;
                 btn.ClearValue(Button.BackgroundProperty);
@@ -819,12 +827,14 @@ namespace DataverseDebugger.App
                     _requestsView.ApplyAssemblyPaths(profile.PluginAssemblies);
                     _runnerView.ApplyCatalog(catalog, profile.PluginAssemblies);
                     _requestsView.ApplyCatalog(catalog);
+                    _pluginsView.ApplyCatalog(catalog, profile.PluginAssemblies);
                     _activeCatalog = catalog;
                     catalogReady = true;
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Plugin catalog fetch failed: {ex.Message}", "Plugin catalog", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    _pluginsView.ShowCatalogUnavailable(ex.Message);
                 }
 
                 if (!metadataReady || !catalogReady)
@@ -894,6 +904,7 @@ namespace DataverseDebugger.App
             SetEnvironmentLoading(false, null, null);
             SetRunnerStoppedState();
             EnvironmentPathService.CleanupAllRunnerShadowRoots();
+            _pluginsView.Clear();
             UpdateActiveEnvironmentUI();
             UpdateNavEnabled();
             ShowSection("Environments", NavEnvironments);

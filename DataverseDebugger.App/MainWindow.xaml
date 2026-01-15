@@ -272,6 +272,16 @@
                         <TextBlock Text="Requests" Margin="8 0 0 0" Style="{StaticResource SidebarNavLabelStyle}" Grid.Column="1" VerticalAlignment="Center"/>
                     </Grid>
                 </Button>
+                <Button x:Name="NavPlugins" Style="{StaticResource NavButtonStyle}" Click="OnNavPlugins">
+                    <Grid Style="{StaticResource NavButtonContentStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="🔌" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Column="0"/>
+                        <TextBlock Text="Plugins" Margin="8 0 0 0" Style="{StaticResource SidebarNavLabelStyle}" Grid.Column="1" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
                 <Button x:Name="NavEnvironments" Style="{StaticResource NavButtonStyle}" Click="OnNavEnvironments">
                     <Grid Style="{StaticResource NavButtonContentStyle}">
                         <Grid.ColumnDefinitions>

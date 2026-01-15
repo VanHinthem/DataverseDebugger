@@ -578,22 +578,21 @@ namespace DataverseDebugger.App.Services
                     {
                         foreach (var element in value.EnumerateArray())
                         {
-                            if (element.TryGetProperty("uniquename", out var uniqueProp) && uniqueProp.ValueKind == JsonValueKind.String)
+                            var uniqueName = element.TryGetProperty("uniquename", out var uniqueProp) && uniqueProp.ValueKind == JsonValueKind.String
+                                ? uniqueProp.GetString()
+                                : null;
+                            if (!string.IsNullOrWhiteSpace(uniqueName))
                             {
-                                var uniqueName = uniqueProp.GetString();
-                                if (!string.IsNullOrWhiteSpace(uniqueName))
-                                {
-                                    results.Add(uniqueName);
-                                }
+                                results.Add(uniqueName);
+                                continue;
                             }
 
-                            if (element.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String)
+                            var name = element.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String
+                                ? nameProp.GetString()
+                                : null;
+                            if (!string.IsNullOrWhiteSpace(name))
                             {
-                                var name = nameProp.GetString();
-                                if (!string.IsNullOrWhiteSpace(name))
-                                {
-                                    results.Add(name);
-                                }
+                                results.Add(name);
                             }
                         }
                     }

@@ -82,7 +82,9 @@ namespace DataverseDebugger.App.Auth
                 Name = DiscoveryProfileName,
                 OrgUrl = "https://globaldisco.crm.dynamics.com",
                 CaptureApiOnly = true,
+                CaptureWebResources = false,
                 CaptureAutoProxy = true,
+                WebResourceAutoResponderEnabled = false,
                 TenantId = DefaultTenant,
                 ClientId = DefaultClientId,
                 TokenCachePath = EnvironmentPathService.EnsureEnvironmentSubfolder(DiscoveryProfileName, "token-cache")

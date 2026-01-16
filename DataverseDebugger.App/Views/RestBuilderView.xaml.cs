@@ -99,8 +99,11 @@ namespace DataverseDebugger.App.Views
             Loaded += OnLoaded;
             ThemeService.ThemeChanged += OnThemeChanged;
             CaptureToggle.IsChecked = _settings.CaptureEnabled;
+            ApiToggle.IsChecked = _settings.ApiOnly;
+            WebResourcesToggle.IsChecked = _settings.CaptureWebResources;
             AutoProxyToggle.IsChecked = _settings.AutoProxy;
             SetDebugToggleVisual(_settings.AutoDebugMatched);
+            UpdateCaptureDependentToggles();
         }
 
         private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -350,16 +353,22 @@ namespace DataverseDebugger.App.Views
             }
 
             var originalUrl = e.Request.Uri;
-            var sanitizedUrl = SanitizeUrl(originalUrl);
-            if (!IsAllowed(originalUrl, _settings.ApiOnly))
+            if (!TryCreateUri(originalUrl, out var uri))
             {
                 return;
             }
 
+            if (!IsAllowed(uri, _settings.ApiOnly, _settings.CaptureWebResources))
+            {
+                return;
+            }
+
+            var sanitizedUrl = SanitizeUrl(originalUrl);
             var bodySnippet = ReadRequestBody(e, out var bodyBytes);
             var (headersText, rawHeadersMap) = FlattenHeaders(e.Request.Headers);
             var clientRequestId = TryGetHeader(rawHeadersMap, "x-ms-client-request-id");
             var bodyHash = ComputeBodyHash(bodyBytes);
+            var isApiRequest = IsApiPath(uri);
 
             if (IsDuplicate(method, originalUrl, clientRequestId, bodyHash))
             {
@@ -386,7 +395,7 @@ namespace DataverseDebugger.App.Views
                 _requests.RemoveAt(0);
             }
 
-            if (_settings.AutoProxy && IsSafeForAutoProxy(method))
+            if (_settings.AutoProxy && _settings.ApiOnly && isApiRequest && IsSafeForAutoProxy(method))
             {
                 if (ShouldIntercept(method))
                 {
@@ -553,17 +562,13 @@ namespace DataverseDebugger.App.Views
             }
         }
 
-        private static bool IsAllowed(string url, bool apiOnly)
+        private static bool TryCreateUri(string url, out Uri uri)
         {
+            uri = null!;
             try
             {
-                var uri = new Uri(url);
-                if (Array.IndexOf(AllowedSchemes, uri.Scheme) < 0)
-                {
-                    return false;
-                }
-
-                return apiOnly ? IsApiPath(uri) : true;
+                uri = new Uri(url);
+                return Array.IndexOf(AllowedSchemes, uri.Scheme) >= 0;
             }
             catch
             {
@@ -571,10 +576,26 @@ namespace DataverseDebugger.App.Views
             }
         }
 
+        private static bool IsAllowed(Uri uri, bool captureApi, bool captureWebResources)
+        {
+            if (!captureApi && !captureWebResources)
+            {
+                return false;
+            }
+
+            return (captureApi && IsApiPath(uri)) || (captureWebResources && IsWebResourcePath(uri));
+        }
+
         private static bool IsApiPath(Uri uri)
         {
             var path = uri.AbsolutePath.ToLowerInvariant();
             return path.Contains("/api/");
+        }
+
+        private static bool IsWebResourcePath(Uri uri)
+        {
+            var path = uri.AbsolutePath.ToLowerInvariant();
+            return path.Contains("/webresources/");
         }
 
         private static string SanitizeUrl(string url)
@@ -1366,6 +1387,17 @@ namespace DataverseDebugger.App.Views
         private void OnCaptureToggleChanged(object sender, RoutedEventArgs e)
         {
             _settings.CaptureEnabled = CaptureToggle.IsChecked == true;
+            UpdateCaptureDependentToggles();
+        }
+
+        private void OnApiToggleChanged(object sender, RoutedEventArgs e)
+        {
+            _settings.ApiOnly = ApiToggle.IsChecked == true;
+        }
+
+        private void OnWebResourcesToggleChanged(object sender, RoutedEventArgs e)
+        {
+            _settings.CaptureWebResources = WebResourcesToggle.IsChecked == true;
         }
 
         private void OnAutoProxyToggleChanged(object sender, RoutedEventArgs e)
@@ -1393,6 +1425,17 @@ namespace DataverseDebugger.App.Views
             if (e.PropertyName == nameof(CaptureSettingsModel.CaptureEnabled))
             {
                 CaptureToggle.IsChecked = _settings.CaptureEnabled;
+                UpdateCaptureDependentToggles();
+            }
+
+            if (e.PropertyName == nameof(CaptureSettingsModel.ApiOnly))
+            {
+                ApiToggle.IsChecked = _settings.ApiOnly;
+            }
+
+            if (e.PropertyName == nameof(CaptureSettingsModel.CaptureWebResources))
+            {
+                WebResourcesToggle.IsChecked = _settings.CaptureWebResources;
             }
 
             if (e.PropertyName == nameof(CaptureSettingsModel.AutoProxy))
@@ -1404,6 +1447,19 @@ namespace DataverseDebugger.App.Views
             {
                 SetDebugToggleVisual(_settings.AutoDebugMatched);
             }
+        }
+
+        private void UpdateCaptureDependentToggles()
+        {
+            var enabled = _settings.CaptureEnabled;
+            ApiToggleGroup.IsEnabled = enabled;
+            WebResourcesToggleGroup.IsEnabled = enabled;
+            AutoProxyToggleGroup.IsEnabled = enabled;
+            DebugToggleGroup.IsEnabled = enabled;
+            ApiToggleGroup.Opacity = enabled ? 1 : 0.5;
+            WebResourcesToggleGroup.Opacity = enabled ? 1 : 0.5;
+            AutoProxyToggleGroup.Opacity = enabled ? 1 : 0.5;
+            DebugToggleGroup.Opacity = enabled ? 1 : 0.5;
         }
 
         private void OnBrowserSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)

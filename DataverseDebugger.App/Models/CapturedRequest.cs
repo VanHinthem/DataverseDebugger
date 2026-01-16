@@ -64,14 +64,42 @@ namespace DataverseDebugger.App.Models
         /// <summary>Gets or sets whether the request was auto-proxied through the runner.</summary>
         public bool AutoProxied { get; set; }
 
+        /// <summary>Gets or sets whether the request was auto-responded by a WebResource rule.</summary>
+        public bool AutoResponded { get; set; }
+
+        /// <summary>Gets or sets whether a WebResource AutoResponder rule matched this request.</summary>
+        public bool AutoResponderMatched { get; set; }
+
+        /// <summary>Gets or sets the matching AutoResponder rule summary.</summary>
+        public string? AutoResponderRule { get; set; }
+
+        /// <summary>Gets or sets the resolved AutoResponder target (path or URL).</summary>
+        public string? AutoResponderResolved { get; set; }
+
+        /// <summary>Gets or sets the AutoResponder status or fallback reason.</summary>
+        public string? AutoResponderStatus { get; set; }
+
         /// <summary>Gets or sets whether the request can be converted to an SDK request.</summary>
         public bool CanConvert { get; set; }
 
         /// <summary>Gets or sets whether the request has matching plugin steps.</summary>
         public bool HasSteps { get; set; }
 
-        /// <summary>Gets whether there are matching plugin types.</summary>
-        public bool HasMatch => MatchingTypesCount > 0;
+        /// <summary>Gets whether there are matching plugin types or an AutoResponder hit.</summary>
+        public bool HasMatch => MatchingTypesCount > 0 || AutoResponded;
+
+        /// <summary>Gets whether there are matching steps or an AutoResponder rule match.</summary>
+        public bool HasStepsIndicator => IsWebResource ? AutoResponderMatched : HasSteps;
+
+        /// <summary>Gets whether the request targets a WebResource URL.</summary>
+        public bool IsWebResource
+        {
+            get
+            {
+                var url = !string.IsNullOrWhiteSpace(OriginalUrl) ? OriginalUrl : Url;
+                return url.IndexOf("/webresources/", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+        }
 
         /// <summary>Gets a display string for the request.</summary>
         public string Display => $"{Method} {Url}";

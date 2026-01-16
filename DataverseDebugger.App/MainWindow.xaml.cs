@@ -756,6 +756,7 @@ namespace DataverseDebugger.App
             try
             {
                 _captureSettings.ApiOnly = profile.CaptureApiOnly;
+                _captureSettings.CaptureWebResources = profile.CaptureWebResources;
                 _captureSettings.NavigateUrl = string.IsNullOrWhiteSpace(profile.CaptureNavigateUrl) ? profile.OrgUrl : profile.CaptureNavigateUrl;
 
                 SetEnvironmentLoading(true, $"Loading {profile.Name} (1/5) Checking sign-in...", 1);
@@ -866,7 +867,12 @@ namespace DataverseDebugger.App
                 }
 
                 SetEnvironmentLoading(true, $"Loading {profile.Name} (5/5) Initializing browser...", 5);
-                _ = _browserView.ApplyEnvironmentAsync(_captureSettings.NavigateUrl, _captureSettings.ApiOnly, _captureSettings.AutoProxy, profile.WebViewCachePath);
+                _ = _browserView.ApplyEnvironmentAsync(
+                    _captureSettings.NavigateUrl,
+                    _captureSettings.ApiOnly,
+                    _captureSettings.CaptureWebResources,
+                    _captureSettings.AutoProxy,
+                    profile.WebViewCachePath);
                 _browserView.SetEnvironmentContext(profile, profile.LastAccessToken);
                 if (_browserSettings.OpenDevToolsOnActivate)
                 {

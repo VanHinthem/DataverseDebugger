@@ -98,6 +98,14 @@ namespace DataverseDebugger.App.Views
             {
                 CaptureToggle.IsChecked = _settings.CaptureEnabled;
             }
+            if (ApiToggle != null)
+            {
+                ApiToggle.IsChecked = _settings.ApiOnly;
+            }
+            if (WebResourcesToggle != null)
+            {
+                WebResourcesToggle.IsChecked = _settings.CaptureWebResources;
+            }
             if (AutoProxyToggle != null)
             {
                 AutoProxyToggle.IsChecked = _settings.AutoProxy;
@@ -106,6 +114,7 @@ namespace DataverseDebugger.App.Views
             {
                 SetDebugToggleVisual(_settings.AutoDebugMatched);
             }
+            UpdateCaptureDependentToggles();
             _settings.PropertyChanged += OnSettingsPropertyChanged;
             Loaded += OnLoaded;
             Requests.CollectionChanged += OnRequestsCollectionChanged;
@@ -119,7 +128,23 @@ namespace DataverseDebugger.App.Views
         {
             if (RequestList.SelectedItem is CapturedRequest item)
             {
-                RequestInfoText.Text = $"Method: {item.Method}{Environment.NewLine}Url: {item.OriginalUrl}{Environment.NewLine}Time: {item.Timestamp:HH:mm:ss}";
+                var summary = new StringBuilder();
+                summary.Append($"Method: {item.Method}");
+                summary.Append($"{Environment.NewLine}Url: {item.OriginalUrl}");
+                summary.Append($"{Environment.NewLine}Time: {item.Timestamp:HH:mm:ss}");
+                if (!string.IsNullOrWhiteSpace(item.AutoResponderRule))
+                {
+                    summary.Append($"{Environment.NewLine}AutoResponder rule: {item.AutoResponderRule}");
+                }
+                if (!string.IsNullOrWhiteSpace(item.AutoResponderResolved))
+                {
+                    summary.Append($"{Environment.NewLine}AutoResponder target: {item.AutoResponderResolved}");
+                }
+                if (!string.IsNullOrWhiteSpace(item.AutoResponderStatus))
+                {
+                    summary.Append($"{Environment.NewLine}AutoResponder status: {item.AutoResponderStatus}");
+                }
+                RequestInfoText.Text = summary.ToString();
                 HeadersText.Text = item.Headers;
                 BodyText.Text = item.BodyPreview;
                 RunnerResponseText.Text = item.ResponseStatus.HasValue ? $"Runner response: {item.ResponseStatus}" : "Runner response: -";
@@ -170,6 +195,27 @@ namespace DataverseDebugger.App.Views
             }
 
             _settings.CaptureEnabled = CaptureToggle.IsChecked == true;
+            UpdateCaptureDependentToggles();
+        }
+
+        private void OnApiToggleChanged(object sender, RoutedEventArgs e)
+        {
+            if (ApiToggle == null)
+            {
+                return;
+            }
+
+            _settings.ApiOnly = ApiToggle.IsChecked == true;
+        }
+
+        private void OnWebResourcesToggleChanged(object sender, RoutedEventArgs e)
+        {
+            if (WebResourcesToggle == null)
+            {
+                return;
+            }
+
+            _settings.CaptureWebResources = WebResourcesToggle.IsChecked == true;
         }
 
         private void OnAutoProxyToggleChanged(object sender, RoutedEventArgs e)
@@ -381,6 +427,7 @@ namespace DataverseDebugger.App.Views
                 OrgUrl = _activeProfile?.OrgUrl,
                 AccessToken = _activeToken,
                 WriteMode = _runnerSettings?.WriteMode,
+                ExecutionMode = _runnerSettings?.ExecutionMode,
                 UnsecureConfiguration = step.UnsecureConfiguration,
                 SecureConfiguration = step.SecureConfiguration,
                 HttpRequest = new InterceptedHttpRequest
@@ -1845,10 +1892,10 @@ namespace DataverseDebugger.App.Views
                 return true;
             }
 
-            var hasAnyIndicator = req.HasMatch || req.CanConvert || req.HasSteps;
+            var hasAnyIndicator = req.HasMatch || req.CanConvert || req.HasStepsIndicator;
             var includeMatch = _showMatchIndicator && req.HasMatch;
             var includeConvertible = _showConvertibleIndicator && req.CanConvert;
-            var includeSteps = _showStepIndicator && req.HasSteps;
+            var includeSteps = _showStepIndicator && req.HasStepsIndicator;
             var includeNone = _showNoIndicator && !hasAnyIndicator;
 
             return includeMatch || includeConvertible || includeSteps || includeNone;
@@ -2094,6 +2141,17 @@ namespace DataverseDebugger.App.Views
             if (e.PropertyName == nameof(CaptureSettingsModel.CaptureEnabled) && CaptureToggle != null)
             {
                 CaptureToggle.IsChecked = _settings.CaptureEnabled;
+                UpdateCaptureDependentToggles();
+            }
+
+            if (e.PropertyName == nameof(CaptureSettingsModel.ApiOnly) && ApiToggle != null)
+            {
+                ApiToggle.IsChecked = _settings.ApiOnly;
+            }
+
+            if (e.PropertyName == nameof(CaptureSettingsModel.CaptureWebResources) && WebResourcesToggle != null)
+            {
+                WebResourcesToggle.IsChecked = _settings.CaptureWebResources;
             }
 
             if (e.PropertyName == nameof(CaptureSettingsModel.AutoProxy) && AutoProxyToggle != null)
@@ -2104,6 +2162,31 @@ namespace DataverseDebugger.App.Views
             if (e.PropertyName == nameof(CaptureSettingsModel.AutoDebugMatched) && DebugToggle != null)
             {
                 SetDebugToggleVisual(_settings.AutoDebugMatched);
+            }
+        }
+
+        private void UpdateCaptureDependentToggles()
+        {
+            var enabled = _settings.CaptureEnabled;
+            if (ApiToggleGroup != null)
+            {
+                ApiToggleGroup.IsEnabled = enabled;
+                ApiToggleGroup.Opacity = enabled ? 1 : 0.5;
+            }
+            if (WebResourcesToggleGroup != null)
+            {
+                WebResourcesToggleGroup.IsEnabled = enabled;
+                WebResourcesToggleGroup.Opacity = enabled ? 1 : 0.5;
+            }
+            if (AutoProxyToggleGroup != null)
+            {
+                AutoProxyToggleGroup.IsEnabled = enabled;
+                AutoProxyToggleGroup.Opacity = enabled ? 1 : 0.5;
+            }
+            if (DebugToggleGroup != null)
+            {
+                DebugToggleGroup.IsEnabled = enabled;
+                DebugToggleGroup.Opacity = enabled ? 1 : 0.5;
             }
         }
 
@@ -2174,6 +2257,11 @@ namespace DataverseDebugger.App.Views
             public System.Collections.Generic.List<string>? ResponseTraceLines { get; set; }
             public int MatchingTypesCount { get; set; }
             public bool AutoProxied { get; set; }
+            public bool AutoResponded { get; set; }
+            public bool AutoResponderMatched { get; set; }
+            public string? AutoResponderRule { get; set; }
+            public string? AutoResponderResolved { get; set; }
+            public string? AutoResponderStatus { get; set; }
             public bool CanConvert { get; set; }
             public bool HasSteps { get; set; }
 
@@ -2193,6 +2281,11 @@ namespace DataverseDebugger.App.Views
                 ResponseTraceLines = req.ResponseTraceLines,
                 MatchingTypesCount = req.MatchingTypesCount,
                 AutoProxied = req.AutoProxied,
+                AutoResponded = req.AutoResponded,
+                AutoResponderMatched = req.AutoResponderMatched,
+                AutoResponderRule = req.AutoResponderRule,
+                AutoResponderResolved = req.AutoResponderResolved,
+                AutoResponderStatus = req.AutoResponderStatus,
                 CanConvert = req.CanConvert,
                 HasSteps = req.HasSteps
             };
@@ -2213,6 +2306,11 @@ namespace DataverseDebugger.App.Views
                 ResponseTraceLines = ResponseTraceLines ?? new System.Collections.Generic.List<string>(),
                 MatchingTypesCount = MatchingTypesCount,
                 AutoProxied = AutoProxied,
+                AutoResponded = AutoResponded,
+                AutoResponderMatched = AutoResponderMatched,
+                AutoResponderRule = AutoResponderRule,
+                AutoResponderResolved = AutoResponderResolved,
+                AutoResponderStatus = AutoResponderStatus,
                 CanConvert = CanConvert,
                 HasSteps = HasSteps
             };

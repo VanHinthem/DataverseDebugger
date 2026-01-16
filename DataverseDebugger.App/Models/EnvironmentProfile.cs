@@ -31,8 +31,13 @@ namespace DataverseDebugger.App.Models
 
         // Capture defaults
         public bool CaptureApiOnly { get; set; } = true;
+        public bool CaptureWebResources { get; set; }
         public bool CaptureAutoProxy { get; set; } = true;
         public string? CaptureNavigateUrl { get; set; }
+
+        // WebResources AutoResponder
+        public bool WebResourceAutoResponderEnabled { get; set; }
+        public List<WebResourceAutoResponderRule> WebResourceAutoResponderRules { get; set; } = new();
 
         // Auth/cache paths (per-environment)
         public string? TokenCachePath { get; set; }

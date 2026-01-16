@@ -36,6 +36,7 @@ namespace DataverseDebugger.Runner
         private readonly RunnerWriteMode _writeMode;
         private readonly Func<string, string?> _entitySetResolver;
         private readonly AttributeMetadataResolver? _attributeResolver;
+        private readonly IOrganizationService? _liveService;
         private readonly string? _apiBaseUrl;
         private readonly Dictionary<string, Dictionary<Guid, Entity>> _overlay =
             new Dictionary<string, Dictionary<Guid, Entity>>(StringComparer.OrdinalIgnoreCase);
@@ -51,7 +52,7 @@ namespace DataverseDebugger.Runner
         /// <param name="accessToken">OAuth access token for authentication.</param>
         /// <param name="writeMode">Whether to perform live or fake writes.</param>
         /// <param name="entitySetResolver">Function to resolve entity logical names to Web API entity set names.</param>
-        public RunnerOrganizationService(Action<string> log, HttpClient http, string? orgUrl, string? accessToken, RunnerWriteMode writeMode, Func<string, string?> entitySetResolver, AttributeMetadataResolver? attributeResolver)
+        public RunnerOrganizationService(Action<string> log, HttpClient http, string? orgUrl, string? accessToken, RunnerWriteMode writeMode, Func<string, string?> entitySetResolver, AttributeMetadataResolver? attributeResolver, IOrganizationService? liveService)
         {
             _log = log;
             _http = http;
@@ -59,6 +60,7 @@ namespace DataverseDebugger.Runner
             _writeMode = writeMode;
             _entitySetResolver = entitySetResolver;
             _attributeResolver = attributeResolver;
+            _liveService = liveService;
             _apiBaseUrl = BuildApiBaseUrl(orgUrl);
         }
 
@@ -73,10 +75,9 @@ namespace DataverseDebugger.Runner
 
             if (_writeMode == RunnerWriteMode.LiveWrites)
             {
-                var response = SendWebApi(HttpMethod.Post, BuildEntitySetUrl(entity.LogicalName), BuildEntityPayload(entity, includeId: false));
-                EnsureSuccess(response, "Create");
-                var createdId = TryGetIdFromResponse(response) ?? id;
-                if (createdId != id)
+                EnsureLiveWrite();
+                var createdId = _liveService!.Create(entity);
+                if (createdId != Guid.Empty && createdId != id)
                 {
                     entity.Id = createdId;
                     UpsertOverlay(entity);
@@ -99,9 +100,8 @@ namespace DataverseDebugger.Runner
             UpsertOverlay(entity);
             if (_writeMode == RunnerWriteMode.LiveWrites)
             {
-                var url = BuildEntityIdUrl(entity.LogicalName, entity.Id);
-                var response = SendWebApi(new HttpMethod("PATCH"), url, BuildEntityPayload(entity, includeId: false));
-                EnsureSuccess(response, "Update");
+                EnsureLiveWrite();
+                _liveService!.Update(entity);
             }
             else
             {
@@ -118,8 +118,8 @@ namespace DataverseDebugger.Runner
             MarkDeleted(entityName, id);
             if (_writeMode == RunnerWriteMode.LiveWrites)
             {
-                var response = SendWebApi(HttpMethod.Delete, BuildEntityIdUrl(entityName, id), null);
-                EnsureSuccess(response, "Delete");
+                EnsureLiveWrite();
+                _liveService!.Delete(entityName, id);
             }
             else
             {
@@ -134,6 +134,11 @@ namespace DataverseDebugger.Runner
             {
                 _log($"[OrgService] Retrieve {entityName} {id} (overlay)");
                 return overlay;
+            }
+
+            if (_liveService != null)
+            {
+                return _liveService.Retrieve(entityName, id, columnSet);
             }
 
             EnsureLiveRead();
@@ -168,10 +173,24 @@ namespace DataverseDebugger.Runner
                 overlayApplied = overlayEntities.Count > 0;
             }
 
-            if (!HasLiveAccess())
+            if (!HasLiveReadAccess())
             {
                 _log("[OrgService] RetrieveMultiple live read unavailable; returning overlay only.");
                 return results;
+            }
+
+            if (_liveService != null)
+            {
+                var liveResults = _liveService.RetrieveMultiple(query) ?? new EntityCollection();
+                if (string.IsNullOrWhiteSpace(liveResults.EntityName) && !string.IsNullOrWhiteSpace(logicalName))
+                {
+                    liveResults.EntityName = logicalName;
+                }
+                if (overlayApplied)
+                {
+                    MergeOverlay(liveResults, logicalName, overlayEntities);
+                }
+                return liveResults;
             }
 
             var fetchXml = GetFetchXml(query);
@@ -256,10 +275,22 @@ namespace DataverseDebugger.Runner
 
         private OrganizationResponse ExecuteWhoAmI()
         {
-            if (!HasLiveAccess())
+            if (!HasLiveReadAccess())
             {
                 _log("[OrgService] WhoAmI live read unavailable; returning empty response.");
                 return new OrganizationResponse();
+            }
+
+            if (_liveService != null)
+            {
+                try
+                {
+                    return _liveService.Execute(new Microsoft.Crm.Sdk.Messages.WhoAmIRequest()) ?? new OrganizationResponse();
+                }
+                catch
+                {
+                    return new OrganizationResponse();
+                }
             }
 
             var url = $"{_apiBaseUrl}WhoAmI";
@@ -334,15 +365,34 @@ namespace DataverseDebugger.Runner
 
         private void EnsureLiveRead()
         {
-            if (!HasLiveAccess())
+            if (!HasLiveReadAccess())
             {
                 throw new InvalidOperationException("Live read requires Org URL and access token.");
             }
         }
 
-        private bool HasLiveAccess()
+        private void EnsureLiveWrite()
         {
-            return !string.IsNullOrWhiteSpace(_apiBaseUrl) && !string.IsNullOrWhiteSpace(_accessToken);
+            if (!HasLiveWriteAccess())
+            {
+                throw new InvalidOperationException("Live write requires ServiceClient.");
+            }
+        }
+
+        private bool HasLiveReadAccess()
+        {
+            if (_liveService != null)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(_apiBaseUrl)
+                && !string.IsNullOrWhiteSpace(_accessToken);
+        }
+
+        private bool HasLiveWriteAccess()
+        {
+            return _liveService != null;
         }
 
         private HttpResponseMessage SendWebApi(HttpMethod method, string url, Dictionary<string, object?>? payload)

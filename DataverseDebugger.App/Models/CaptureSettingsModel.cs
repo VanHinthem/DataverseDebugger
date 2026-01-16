@@ -15,6 +15,7 @@ namespace DataverseDebugger.App.Models
     {
         private string? _navigateUrl;
         private bool _apiOnly = true;
+        private bool _captureWebResources;
         private bool _autoProxy = true;
         private bool _autoDebugMatched;
         private bool _captureEnabled = true;
@@ -31,12 +32,21 @@ namespace DataverseDebugger.App.Models
         }
 
         /// <summary>
-        /// Gets or sets whether to capture only Web API requests (vs all requests).
+        /// Gets or sets whether to capture Web API requests.
         /// </summary>
         public bool ApiOnly
         {
             get => _apiOnly;
             set { if (_apiOnly != value) { _apiOnly = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>
+        /// Gets or sets whether to capture WebResource requests.
+        /// </summary>
+        public bool CaptureWebResources
+        {
+            get => _captureWebResources;
+            set { if (_captureWebResources != value) { _captureWebResources = value; OnPropertyChanged(); } }
         }
 
         /// <summary>

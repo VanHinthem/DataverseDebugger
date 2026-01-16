@@ -43,7 +43,7 @@
                                   IsChecked="True"
                                   Checked="OnRequestFilterToggleChanged"
                                   Unchecked="OnRequestFilterToggleChanged"
-                                  ToolTip="Show requests that have matching plugin types"/>
+                                  ToolTip="Show requests that match plugin types or AutoResponder rules"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
                     <TextBlock Text="Steps" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
@@ -85,14 +85,28 @@
                                   Checked="OnCaptureToggleChanged"
                                   Unchecked="OnCaptureToggleChanged"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel x:Name="ApiToggleGroup" Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
+                    <TextBlock Text="API" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="ApiToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Checked="OnApiToggleChanged"
+                                  Unchecked="OnApiToggleChanged"/>
+                </StackPanel>
+                <StackPanel x:Name="WebResourcesToggleGroup" Orientation="Horizontal" VerticalAlignment="Center" Margin="0 0 12 0">
+                    <TextBlock Text="WebResources" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
+                    <ToggleButton x:Name="WebResourcesToggle"
+                                  Style="{DynamicResource ModernToggleSwitch}"
+                                  Checked="OnWebResourcesToggleChanged"
+                                  Unchecked="OnWebResourcesToggleChanged"/>
+                </StackPanel>
+                <StackPanel x:Name="AutoProxyToggleGroup" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Auto Proxy" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
                     <ToggleButton x:Name="AutoProxyToggle"
                                   Style="{DynamicResource ModernToggleSwitch}"
                                   Checked="OnAutoProxyToggleChanged"
                                   Unchecked="OnAutoProxyToggleChanged"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12 0 0 0">
+                <StackPanel x:Name="DebugToggleGroup" Orientation="Horizontal" VerticalAlignment="Center" Margin="12 0 0 0">
                     <TextBlock Text="Debug" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0 0 6 0" FontSize="12"/>
                     <ToggleButton x:Name="DebugToggle"
                                   Style="{DynamicResource ModernToggleSwitch}"
@@ -187,7 +201,7 @@
                                                 <Setter Property="Text" Value=""/>
                                                 <Setter Property="Opacity" Value="0"/>
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding HasSteps}" Value="True">
+                                                    <DataTrigger Binding="{Binding HasStepsIndicator}" Value="True">
                                                         <Setter Property="Text" Value="[S]"/>
                                                         <Setter Property="Opacity" Value="1"/>
                                                     </DataTrigger>

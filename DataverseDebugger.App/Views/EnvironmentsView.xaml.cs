@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.Encodings.Web;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -29,6 +30,7 @@ namespace DataverseDebugger.App.Views
             "environments.json");
 
         public ObservableCollection<EnvironmentProfile> Profiles { get; } = new ObservableCollection<EnvironmentProfile>();
+        private ObservableCollection<WebResourceAutoResponderRule> _autoResponderRules = new ObservableCollection<WebResourceAutoResponderRule>();
         private EnvironmentProfile? _selected;
         private readonly Func<EnvironmentProfile, Task> _onActivate;
         private readonly Action? _onOpenBrowser;
@@ -241,6 +243,92 @@ namespace DataverseDebugger.App.Views
             }
         }
 
+        private void OnAutoResponderAddRule(object sender, RoutedEventArgs e)
+        {
+            if (_selected == null)
+            {
+                MessageBox.Show("Select an environment first.", "Add rule", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var rule = new WebResourceAutoResponderRule();
+            _autoResponderRules.Add(rule);
+            AutoResponderRulesGrid.SelectedItem = rule;
+            AutoResponderRulesGrid.ScrollIntoView(rule);
+            UpdateAutoResponderButtons();
+        }
+
+        private void OnAutoResponderRemoveRule(object sender, RoutedEventArgs e)
+        {
+            if (AutoResponderRulesGrid.SelectedItem is not WebResourceAutoResponderRule rule)
+            {
+                return;
+            }
+
+            _autoResponderRules.Remove(rule);
+            UpdateAutoResponderButtons();
+        }
+
+        private void OnAutoResponderMoveUpRule(object sender, RoutedEventArgs e)
+        {
+            if (AutoResponderRulesGrid.SelectedItem is not WebResourceAutoResponderRule rule)
+            {
+                return;
+            }
+
+            var index = _autoResponderRules.IndexOf(rule);
+            if (index <= 0)
+            {
+                return;
+            }
+
+            _autoResponderRules.RemoveAt(index);
+            _autoResponderRules.Insert(index - 1, rule);
+            AutoResponderRulesGrid.SelectedItem = rule;
+            AutoResponderRulesGrid.ScrollIntoView(rule);
+            UpdateAutoResponderButtons();
+        }
+
+        private void OnAutoResponderMoveDownRule(object sender, RoutedEventArgs e)
+        {
+            if (AutoResponderRulesGrid.SelectedItem is not WebResourceAutoResponderRule rule)
+            {
+                return;
+            }
+
+            var index = _autoResponderRules.IndexOf(rule);
+            if (index < 0 || index >= _autoResponderRules.Count - 1)
+            {
+                return;
+            }
+
+            _autoResponderRules.RemoveAt(index);
+            _autoResponderRules.Insert(index + 1, rule);
+            AutoResponderRulesGrid.SelectedItem = rule;
+            AutoResponderRulesGrid.ScrollIntoView(rule);
+            UpdateAutoResponderButtons();
+        }
+
+        private void OnAutoResponderRuleSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateAutoResponderButtons();
+        }
+
+        private void UpdateAutoResponderButtons()
+        {
+            if (AutoResponderRulesGrid == null)
+            {
+                return;
+            }
+
+            var rule = AutoResponderRulesGrid.SelectedItem as WebResourceAutoResponderRule;
+            var hasSelection = rule != null;
+            var index = hasSelection ? _autoResponderRules.IndexOf(rule!) : -1;
+            AutoResponderRemoveButton.IsEnabled = hasSelection;
+            AutoResponderMoveUpButton.IsEnabled = hasSelection && index > 0;
+            AutoResponderMoveDownButton.IsEnabled = hasSelection && index >= 0 && index < _autoResponderRules.Count - 1;
+        }
+
         private void LoadProfiles()
         {
             try
@@ -276,7 +364,13 @@ namespace DataverseDebugger.App.Views
                 {
                     Directory.CreateDirectory(dir);
                 }
-                var json = System.Text.Json.JsonSerializer.Serialize(Profiles, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                var json = System.Text.Json.JsonSerializer.Serialize(
+                    Profiles,
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                    });
                 File.WriteAllText(_storePath, json);
             }
             catch
@@ -299,6 +393,12 @@ namespace DataverseDebugger.App.Views
             AssemblyList.ItemsSource = profile.PluginAssemblies.ToList();
             TraceVerboseCheck.IsChecked = profile.TraceVerbose;
             ApiOnlyCheck.IsChecked = profile.CaptureApiOnly;
+            WebResourcesCheck.IsChecked = profile.CaptureWebResources;
+            AutoResponderEnabledCheck.IsChecked = profile.WebResourceAutoResponderEnabled;
+            _autoResponderRules = new ObservableCollection<WebResourceAutoResponderRule>(
+                profile.WebResourceAutoResponderRules?.Select(rule => rule.Clone()) ?? Enumerable.Empty<WebResourceAutoResponderRule>());
+            AutoResponderRulesGrid.ItemsSource = _autoResponderRules;
+            UpdateAutoResponderButtons();
             NavigateUrlBox.Text = profile.CaptureNavigateUrl ?? string.Empty;
             TokenCachePathText.Text = profile.TokenCachePath ?? string.Empty;
             WebViewCachePathText.Text = profile.WebViewCachePath ?? string.Empty;
@@ -316,6 +416,11 @@ namespace DataverseDebugger.App.Views
             AssemblyList.ItemsSource = null;
             TraceVerboseCheck.IsChecked = false;
             ApiOnlyCheck.IsChecked = true;
+            WebResourcesCheck.IsChecked = false;
+            AutoResponderEnabledCheck.IsChecked = false;
+            _autoResponderRules = new ObservableCollection<WebResourceAutoResponderRule>();
+            AutoResponderRulesGrid.ItemsSource = _autoResponderRules;
+            UpdateAutoResponderButtons();
             NavigateUrlBox.Text = string.Empty;
             TokenCachePathText.Text = string.Empty;
             WebViewCachePathText.Text = string.Empty;
@@ -339,6 +444,9 @@ namespace DataverseDebugger.App.Views
             profile.PluginAssemblies = AssemblyList.Items.Cast<string>().ToList();
             profile.TraceVerbose = TraceVerboseCheck.IsChecked == true;
             profile.CaptureApiOnly = ApiOnlyCheck.IsChecked == true;
+            profile.CaptureWebResources = WebResourcesCheck.IsChecked == true;
+            profile.WebResourceAutoResponderEnabled = AutoResponderEnabledCheck.IsChecked == true;
+            profile.WebResourceAutoResponderRules = _autoResponderRules.Select(rule => rule.Clone()).ToList();
             profile.CaptureNavigateUrl = NavigateUrlBox.Text;
             profile.TokenCachePath = EnvironmentPathService.EnsureEnvironmentSubfolder(profile, "token-cache");
             profile.WebViewCachePath = EnvironmentPathService.EnsureEnvironmentSubfolder(profile, "webview-cache");

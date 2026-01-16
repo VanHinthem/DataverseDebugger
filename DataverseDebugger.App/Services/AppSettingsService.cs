@@ -121,6 +121,8 @@ namespace DataverseDebugger.App.Services
                     },
                     Runner = new RunnerSettingsDto
                     {
+                        ExecutionMode = model.Runner.ExecutionMode,
+                        AllowLiveWrites = model.Runner.AllowLiveWrites,
                         WriteMode = model.Runner.WriteMode
                     },
                     Appearance = new AppearanceSettingsDto
@@ -204,9 +206,27 @@ namespace DataverseDebugger.App.Services
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(dto.WriteMode))
+            var executionMode = string.IsNullOrWhiteSpace(dto.ExecutionMode) ? null : dto.ExecutionMode;
+            var allowLiveWrites = dto.AllowLiveWrites;
+
+            if ((executionMode == null || allowLiveWrites == null) && !string.IsNullOrWhiteSpace(dto.WriteMode))
             {
-                model.WriteMode = dto.WriteMode;
+                var isLiveWrites =
+                    string.Equals(dto.WriteMode, "LiveWrites", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(dto.WriteMode, "Live", StringComparison.OrdinalIgnoreCase);
+
+                executionMode ??= isLiveWrites ? "Online" : "Hybrid";
+                allowLiveWrites ??= isLiveWrites;
+            }
+
+            if (executionMode != null)
+            {
+                model.ExecutionMode = executionMode;
+            }
+
+            if (allowLiveWrites != null)
+            {
+                model.AllowLiveWrites = allowLiveWrites.Value;
             }
         }
 
@@ -225,7 +245,8 @@ namespace DataverseDebugger.App.Services
 
         private static void CopyRunnerSettings(RunnerSettingsModel source, RunnerSettingsModel target)
         {
-            target.WriteMode = source.WriteMode;
+            target.ExecutionMode = source.ExecutionMode;
+            target.AllowLiveWrites = source.AllowLiveWrites;
         }
 
         private static void ApplyAppearance(AppearanceSettingsModel model, AppearanceSettingsDto? dto)
@@ -282,7 +303,9 @@ namespace DataverseDebugger.App.Services
 
         private sealed class RunnerSettingsDto
         {
-            public string WriteMode { get; set; } = "FakeWrites";
+            public string? ExecutionMode { get; set; }
+            public bool? AllowLiveWrites { get; set; }
+            public string? WriteMode { get; set; }
         }
 
         private sealed class AppearanceSettingsDto

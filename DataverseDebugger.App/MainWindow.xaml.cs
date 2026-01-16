@@ -41,6 +41,7 @@ namespace DataverseDebugger.App
         private readonly BrowserView _browserView;
         private readonly RestBuilderView _restBuilderView;
         private readonly RequestsView _requestsView;
+        private readonly PluginsView _pluginsView;
         private readonly EnvironmentsView _environmentsView;
         private readonly SettingsView _settingsView;
         private readonly ObservableCollection<CapturedRequest> _requests = new();
@@ -50,6 +51,8 @@ namespace DataverseDebugger.App
         private readonly RunnerLogSettingsModel _runnerLogSettings;
         private readonly RunnerSettingsModel _runnerSettings;
         private readonly AppearanceSettingsModel _appearanceSettings;
+        private readonly string _defaultExecutionMode;
+        private readonly bool _defaultAllowLiveWrites;
         private readonly DispatcherTimer _runnerLogTimer = new DispatcherTimer();
         private long _runnerLogLastId;
         private bool _runnerLogPollInProgress;
@@ -67,7 +70,8 @@ namespace DataverseDebugger.App
         private readonly TimeSpan _runnerReloadMinVisible = TimeSpan.FromMilliseconds(800);
         private DispatcherTimer? _runnerReloadHideTimer;
         private bool _suppressRunnerSettingsHandling;
-        private string _lastWriteMode = "FakeWrites";
+        private string _lastExecutionMode = "Hybrid";
+        private bool _lastAllowLiveWrites;
         private bool _closeAfterCleanup;
         private bool _closeCleanupInProgress;
         private static readonly TimeSpan HealthCheckInterval = TimeSpan.FromSeconds(20);
@@ -94,6 +98,8 @@ namespace DataverseDebugger.App
             _runnerLogSettings = appSettings.RunnerLog;
             _runnerSettings = appSettings.Runner;
             _appearanceSettings = appSettings.Appearance;
+            _defaultExecutionMode = _runnerSettings.ExecutionMode;
+            _defaultAllowLiveWrites = _runnerSettings.AllowLiveWrites;
             
             // Initialize theme before creating views
             ThemeService.Initialize(_appearanceSettings.IsDarkMode);
@@ -103,12 +109,14 @@ namespace DataverseDebugger.App
             _browserSettings.PropertyChanged += OnBrowserSettingsChanged;
             _runnerLogSettings.PropertyChanged += OnRunnerLogSettingsChanged;
             _runnerSettings.PropertyChanged += OnRunnerSettingsChanged;
-            _lastWriteMode = _runnerSettings.WriteMode;
+            _lastExecutionMode = _runnerSettings.ExecutionMode;
+            _lastAllowLiveWrites = _runnerSettings.AllowLiveWrites;
             _runnerLogTimer.Interval = TimeSpan.FromSeconds(1);
             _runnerLogTimer.Tick += async (_, _) => await FetchRunnerLogsAsync();
             _runnerView = new RunnerView(_runnerClient, _runnerVm, _globalTrace);
             _browserView = new BrowserView(_runnerClient, _requests, _globalTrace, _captureSettings, _browserSettings);
             _requestsView = new RequestsView(_requests, _runnerClient, _captureSettings, _runnerSettings, _globalTrace);
+            _pluginsView = new PluginsView();
             _browserView.BeforeAutoProxyAsync = _requestsView.HandleAutoDebugBeforeProxyAsync;
             _browserView.AfterAutoProxyAsync = _requestsView.HandleAutoDebugAfterResponseAsync;
             _restBuilderView = new RestBuilderView(_runnerClient, _requests, _globalTrace, _captureSettings, _browserSettings);
@@ -360,6 +368,7 @@ namespace DataverseDebugger.App
             SetNavEnabled(NavBrowser, ready);
             SetNavEnabled(NavRestBuilder, ready);
             SetNavEnabled(NavRequests, ready);
+            SetNavEnabled(NavPlugins, ready);
             SetNavEnabled(NavRunner, ready);
         }
 
@@ -529,7 +538,7 @@ namespace DataverseDebugger.App
         {
             try
             {
-                var started = await _runnerProcess.EnsureRunningAsync();
+                var started = await _runnerProcess.EnsureRunningAsync(_runnerSettings.AllowLiveWrites);
                 if (!started)
                 {
                     _runnerVm.StatusText = "Failed to start runner process.";
@@ -549,6 +558,7 @@ namespace DataverseDebugger.App
         private void OnNavBrowser(object sender, RoutedEventArgs e) => ShowSection("Browser", NavBrowser);
         private void OnNavRestBuilder(object sender, RoutedEventArgs e) => ShowSection("REST Builder", NavRestBuilder);
         private void OnNavRequests(object sender, RoutedEventArgs e) => ShowSection("Requests", NavRequests);
+        private void OnNavPlugins(object sender, RoutedEventArgs e) => ShowSection("Plugins", NavPlugins);
         private void OnNavEnvironments(object sender, RoutedEventArgs e) => ShowSection("Environments", NavEnvironments);
         private void OnNavRunner(object sender, RoutedEventArgs e) => ShowSection("Runner", NavRunner);
         private void OnNavSettings(object sender, RoutedEventArgs e) => ShowSection("Settings", NavSettings);
@@ -596,6 +606,10 @@ namespace DataverseDebugger.App
                 case "Requests":
                     SectionDescription.Text = "Captured requests and runner responses.";
                     targetView = _requestsView;
+                    break;
+                case "Plugins":
+                    SectionDescription.Text = "Selected plugin registrations for the active environment.";
+                    targetView = _pluginsView;
                     break;
                 case "Environments":
                     SectionDescription.Text = "Manage Dataverse environments.";
@@ -693,7 +707,7 @@ namespace DataverseDebugger.App
 
         private void SetNavSelection(Button selected)
         {
-            foreach (var btn in new[] { NavBrowser, NavRestBuilder, NavRequests, NavEnvironments, NavRunner, NavSettings })
+            foreach (var btn in new[] { NavBrowser, NavRestBuilder, NavRequests, NavPlugins, NavEnvironments, NavRunner, NavSettings })
             {
                 if (btn == null) continue;
                 btn.ClearValue(Button.BackgroundProperty);
@@ -742,6 +756,7 @@ namespace DataverseDebugger.App
             try
             {
                 _captureSettings.ApiOnly = profile.CaptureApiOnly;
+                _captureSettings.CaptureWebResources = profile.CaptureWebResources;
                 _captureSettings.NavigateUrl = string.IsNullOrWhiteSpace(profile.CaptureNavigateUrl) ? profile.OrgUrl : profile.CaptureNavigateUrl;
 
                 SetEnvironmentLoading(true, $"Loading {profile.Name} (1/5) Checking sign-in...", 1);
@@ -817,12 +832,14 @@ namespace DataverseDebugger.App
                     _requestsView.ApplyAssemblyPaths(profile.PluginAssemblies);
                     _runnerView.ApplyCatalog(catalog, profile.PluginAssemblies);
                     _requestsView.ApplyCatalog(catalog);
+                    _pluginsView.ApplyCatalog(catalog, profile.PluginAssemblies);
                     _activeCatalog = catalog;
                     catalogReady = true;
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Plugin catalog fetch failed: {ex.Message}", "Plugin catalog", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    _pluginsView.ShowCatalogUnavailable(ex.Message);
                 }
 
                 if (!metadataReady || !catalogReady)
@@ -850,7 +867,12 @@ namespace DataverseDebugger.App
                 }
 
                 SetEnvironmentLoading(true, $"Loading {profile.Name} (5/5) Initializing browser...", 5);
-                _ = _browserView.ApplyEnvironmentAsync(_captureSettings.NavigateUrl, _captureSettings.ApiOnly, _captureSettings.AutoProxy, profile.WebViewCachePath);
+                _ = _browserView.ApplyEnvironmentAsync(
+                    _captureSettings.NavigateUrl,
+                    _captureSettings.ApiOnly,
+                    _captureSettings.CaptureWebResources,
+                    _captureSettings.AutoProxy,
+                    profile.WebViewCachePath);
                 _browserView.SetEnvironmentContext(profile, profile.LastAccessToken);
                 if (_browserSettings.OpenDevToolsOnActivate)
                 {
@@ -892,6 +914,7 @@ namespace DataverseDebugger.App
             SetEnvironmentLoading(false, null, null);
             SetRunnerStoppedState();
             EnvironmentPathService.CleanupAllRunnerShadowRoots();
+            _pluginsView.Clear();
             UpdateActiveEnvironmentUI();
             UpdateNavEnabled();
             ShowSection("Environments", NavEnvironments);
@@ -1157,26 +1180,47 @@ namespace DataverseDebugger.App
                 return;
             }
 
-            if (!string.Equals(e.PropertyName, nameof(RunnerSettingsModel.WriteMode), StringComparison.Ordinal))
+            if (string.Equals(e.PropertyName, nameof(RunnerSettingsModel.ExecutionMode), StringComparison.Ordinal) ||
+                string.Equals(e.PropertyName, nameof(RunnerSettingsModel.AllowLiveWrites), StringComparison.Ordinal))
             {
-                return;
+                _ = HandleExecutionSettingsChangedAsync();
             }
-
-            _ = HandleWriteModeChangedAsync();
         }
 
-        private async Task HandleWriteModeChangedAsync()
+        private async Task HandleExecutionSettingsChangedAsync()
         {
-            var newMode = _runnerSettings.WriteMode;
-            if (string.Equals(newMode, _lastWriteMode, StringComparison.OrdinalIgnoreCase))
+            var executionMode = _runnerSettings.ExecutionMode;
+            var allowLiveWrites = _runnerSettings.AllowLiveWrites;
+
+            if (string.Equals(executionMode, _lastExecutionMode, StringComparison.OrdinalIgnoreCase) &&
+                allowLiveWrites == _lastAllowLiveWrites)
             {
                 return;
             }
 
-            var previousMode = _lastWriteMode;
-            _lastWriteMode = newMode;
+            var previousExecutionMode = _lastExecutionMode;
+            var previousAllowLiveWrites = _lastAllowLiveWrites;
+            _lastExecutionMode = executionMode;
+            _lastAllowLiveWrites = allowLiveWrites;
 
-            if (IsLiveWrites(newMode))
+            var isOnline = IsExecutionModeOnline(executionMode);
+            var wasLiveWrites = IsExecutionModeOnline(previousExecutionMode) && previousAllowLiveWrites;
+            var isLiveWrites = isOnline && allowLiveWrites;
+
+            if (!isOnline && allowLiveWrites)
+            {
+                if (wasLiveWrites)
+                {
+                    await ReenableAsyncStepsForProfileAsync(_activeProfile, "Re-enabling async steps...");
+                }
+
+                SetExecutionModeSilently(executionMode, allowLiveWrites: false);
+                SaveAppSettings();
+                await RestartRunnerForSettingsChangeAsync();
+                return;
+            }
+
+            if (isLiveWrites && !wasLiveWrites)
             {
                 var proceed = MessageBox.Show(
                     "Live writes will disable async steps for the loaded plugin assemblies in the active environment. Continue?",
@@ -1187,7 +1231,7 @@ namespace DataverseDebugger.App
                 {
                     _ = Dispatcher.InvokeAsync(() =>
                     {
-                        SetWriteModeSilently("FakeWrites");
+                        SetExecutionModeSilently("Hybrid", allowLiveWrites: false);
                         SaveAppSettings();
                     }, DispatcherPriority.Background);
                     return;
@@ -1196,17 +1240,21 @@ namespace DataverseDebugger.App
                 var disabled = await DisableAsyncStepsForActiveEnvironmentAsync();
                 if (!disabled)
                 {
-                    SetWriteModeSilently("FakeWrites");
+                    SetExecutionModeSilently(executionMode, allowLiveWrites: false);
                     SaveAppSettings();
                     return;
                 }
             }
-            else if (IsLiveWrites(previousMode))
+            else if (!isLiveWrites && wasLiveWrites)
             {
                 await ReenableAsyncStepsForProfileAsync(_activeProfile, "Re-enabling async steps...");
             }
 
             SaveAppSettings();
+            if (_runnerSettings.AllowLiveWrites != previousAllowLiveWrites)
+            {
+                await RestartRunnerForSettingsChangeAsync();
+            }
         }
 
         private async Task<bool> DisableAsyncStepsForActiveEnvironmentAsync()
@@ -1327,18 +1375,77 @@ namespace DataverseDebugger.App
             SaveAppSettings();
         }
 
+        private async Task RestartRunnerForSettingsChangeAsync()
+        {
+            if (_activeProfile == null || !_environmentReady || _isEnvironmentLoading)
+            {
+                return;
+            }
+
+            ShowRunnerReloadToast("Runner reloading...");
+            _browserView.NotifyRunnerRestarted();
+            StopRunnerLogPolling();
+            ResetRunnerLogState();
+            _runnerProcess.Stop();
+
+            var started = await EnsureRunnerAsync();
+            if (!started)
+            {
+                HandleRunnerRestartFailure();
+                return;
+            }
+
+            await _runnerView.ApplyEnvironmentAsync(_activeProfile);
+            var ready = await WaitForRunnerReadyAsync(TimeSpan.FromSeconds(10));
+            if (!ready)
+            {
+                HandleRunnerRestartFailure();
+                return;
+            }
+
+            StartHealthTimer();
+            await ApplyRunnerLogConfigAsync();
+            StartRunnerLogPolling();
+            HideRunnerReloadToast();
+        }
+
+        private void HandleRunnerRestartFailure()
+        {
+            HideRunnerReloadToast();
+            _runnerVm.StatusText = "Runner restart failed.";
+            SetBadges(HealthStatus.Error);
+
+            SetExecutionModeSilently("Hybrid", allowLiveWrites: false);
+            SaveAppSettings();
+            MessageBox.Show(
+                "Runner restart failed. Execution mode reverted to Hybrid and live writes were disabled.",
+                "Runner",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+
         private void SetWriteModeSilently(string mode)
         {
             _suppressRunnerSettingsHandling = true;
             _runnerSettings.WriteMode = mode;
-            _lastWriteMode = mode;
+            _lastExecutionMode = _runnerSettings.ExecutionMode;
+            _lastAllowLiveWrites = _runnerSettings.AllowLiveWrites;
             _suppressRunnerSettingsHandling = false;
         }
 
-        private static bool IsLiveWrites(string? mode)
+        private void SetExecutionModeSilently(string mode, bool allowLiveWrites)
         {
-            return string.Equals(mode, "LiveWrites", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(mode, "Live", StringComparison.OrdinalIgnoreCase);
+            _suppressRunnerSettingsHandling = true;
+            _runnerSettings.ExecutionMode = mode;
+            _runnerSettings.AllowLiveWrites = allowLiveWrites;
+            _lastExecutionMode = _runnerSettings.ExecutionMode;
+            _lastAllowLiveWrites = _runnerSettings.AllowLiveWrites;
+            _suppressRunnerSettingsHandling = false;
+        }
+
+        private static bool IsExecutionModeOnline(string? mode)
+        {
+            return string.Equals(mode, "Online", StringComparison.OrdinalIgnoreCase);
         }
 
         private void OnRunnerLogSettingsChanged(object? sender, PropertyChangedEventArgs e)
@@ -1375,7 +1482,12 @@ namespace DataverseDebugger.App
             model.Browser.OpenDevToolsOnActivate = _browserSettings.OpenDevToolsOnActivate;
             model.RunnerLog.Level = _runnerLogSettings.Level;
             model.RunnerLog.ApplyCategories(_runnerLogSettings.ToCategories());
-            model.Runner.WriteMode = _runnerSettings.WriteMode;
+            model.Runner.ExecutionMode = _defaultExecutionMode;
+            model.Runner.AllowLiveWrites = _defaultAllowLiveWrites;
+            model.Runner.WriteMode = _defaultAllowLiveWrites &&
+                                     string.Equals(_defaultExecutionMode, "Online", StringComparison.OrdinalIgnoreCase)
+                ? "LiveWrites"
+                : "FakeWrites";
             model.Appearance.IsDarkMode = _appearanceSettings.IsDarkMode;
             AppSettingsService.Save(model);
         }

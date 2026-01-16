@@ -1,0 +1,12 @@
+{
+  "solution": {
+    "path": "DataverseDebugger.sln",
+    "projects": [
+      "DataverseDebugger.App\\DataverseDebugger.App.csproj",
+      "DataverseDebugger.Protocol\\DataverseDebugger.Protocol.csproj",
+      "DataverseDebugger.Runner\\DataverseDebugger.Runner.csproj",
+      "DataverseDebugger.Runner.Conversion\\DataverseDebugger.Runner.Conversion.csproj",
+      "DataverseDebugger.RestBuilder\\DataverseDebugger.RestBuilder.csproj"
+    ]
+  }
+}

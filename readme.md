@@ -19,6 +19,7 @@ Dataverse Debugger is a Windows desktop tool that lets you reproduce Microsoft D
 - **Switch execution targets** (Live vs. Debugger bridge) per request without changing code.
 - **Compose ad-hoc calls** using the embedded Dataverse REST Builder and send them to either target.
 - **Impersonate users and toggle form helpers** (God Mode, logical names, changed fields) to understand the exact context.
+- **Override WebResources** (JS/CSS/HTML/RESX) with AutoResponder rules to test local changes without redeploying.
 
 ## Typical Flow
 
@@ -33,7 +34,30 @@ Dataverse Debugger is a Windows desktop tool that lets you reproduce Microsoft D
 - You need to debug synchronous plugins or Custom APIs without deploying to Dataverse.
 - You want to inspect the full execution trace (timings, `ITracingService` output, request/response bodies).
 - You are building FetchXML/CRUD calls and want to send them either to Dataverse or to your local debugger using the same UI.
+- You want to debug WebResource changes locally by serving files or folders from disk.
 - You must test impersonation scenarios or confirm how field-level changes impact the payload before saving.
+
+## Execution Modes (Plugin Debugging)
+
+The runner supports three execution modes for plugin debugging payloads:
+
+- **Offline**: fully in-memory; no live Dataverse calls. `Execute` supports WhoAmI only.
+- **Hybrid**: cached writes + live reads via a ServiceClient-backed `IOrganizationService`. Cached creates are only injected for ID-targeted queries.
+- **Online**: live reads + writes via ServiceClient. Writes are gated by `DATAVERSE_DEBUGGER_ALLOW_LIVE_WRITES`.
+
+Execution mode is driven by the `ExecutionMode` request field (`Offline`, `Hybrid`, `Online`). If absent, legacy `WriteMode` mapping applies.
+
+## WebResource Debugging
+
+AutoResponder rules let you serve WebResources from local disk or proxy to an external server. Rules support Exact, Wildcard, or Regex matches and run only when Capture and WebResources are enabled. This makes it possible to validate JavaScript, CSS, or HTML changes locally without redeploying them to Dataverse.
+
+## Known Limitations
+
+- Plugin execution is single-step (no pipeline re-entry simulation).
+- Offline supports WhoAmI only for `Execute`.
+- Hybrid `Execute` is Whitelisted to WhoAmI only.
+- Access tokens are supplied per request; token refresh is not handled by the runner.
+- Host-side Web API proxy routing remains separate from the runner's plugin debugging pipeline.
 
 ## Requirements
 
@@ -44,13 +68,12 @@ Dataverse Debugger is a Windows desktop tool that lets you reproduce Microsoft D
 
 ## TODO
 - Darkmode
-- Webresource Debugging (fiddler style)
 - Fake plugin registration
-- Offline debugging, like profiler
+- Expanded offline debugging UX
 
 ## Related Docs
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) – how the processes communicate.
+- [ARCHITECTURE.md](ARCHITECTURE.md) - how the processes communicate.
 
 
 Licensed under MIT. See `THIRD_PARTY_NOTICES.txt` for bundled components. Use only in development/test environments.

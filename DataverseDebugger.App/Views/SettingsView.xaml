@@ -113,13 +113,29 @@
                 <Border Style="{DynamicResource ModernSectionBorder}" Margin="0 0 0 16">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0 0 0 6" VerticalAlignment="Center">
-                            <TextBlock Text="Write mode" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold" Width="110" VerticalAlignment="Center"/>
-                            <ComboBox Width="240" Style="{DynamicResource ModernComboBox}" 
-                                      SelectedValuePath="Tag" SelectedValue="{Binding Runner.WriteMode, Mode=TwoWay}"
+                            <TextBlock Text="Execution mode" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold" Width="110" VerticalAlignment="Center"/>
+                            <ComboBox Width="240" Style="{DynamicResource ModernComboBox}"
+                                      SelectedValuePath="Tag" SelectedValue="{Binding Runner.ExecutionMode, Mode=TwoWay}"
                                       HorizontalAlignment="Left">
-                                <ComboBoxItem Content="Fake writes (overlay)" Tag="FakeWrites"/>
-                                <ComboBoxItem Content="Live writes (org)" Tag="LiveWrites"/>
+                                <ComboBoxItem Content="Offline" Tag="Offline"/>
+                                <ComboBoxItem Content="Hybrid" Tag="Hybrid"/>
+                                <ComboBoxItem Content="Online" Tag="Online"/>
                             </ComboBox>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0 0 0 6" VerticalAlignment="Center">
+                            <TextBlock Text="Allow live writes" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold" Width="110" VerticalAlignment="Center"/>
+                            <ToggleButton IsChecked="{Binding Runner.AllowLiveWrites, Mode=TwoWay}">
+                                <ToggleButton.Style>
+                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource ModernToggleSwitch}">
+                                        <Setter Property="IsEnabled" Value="False"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Runner.ExecutionMode}" Value="Online">
+                                                <Setter Property="IsEnabled" Value="True"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ToggleButton.Style>
+                            </ToggleButton>
                         </StackPanel>
                         <TextBlock Text="Live writes will disable async steps for the loaded plugin assemblies."
                                    Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="11"/>

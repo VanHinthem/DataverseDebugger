@@ -226,6 +226,10 @@ namespace DataverseDebugger.App.Views
             var bodyHash = ComputeBodyHash(bodyBytes);
             var isApiRequest = IsApiPath(uri);
             var isWebResourceRequest = IsWebResourceUrl(originalUrl);
+            if (isWebResourceRequest && originalUrl.EndsWith(".map", StringComparison.OrdinalIgnoreCase))
+            {
+                LogService.Append($"WebResource source map requested: {originalUrl}");
+            }
 
             if (IsDuplicate(method, originalUrl, clientRequestId, bodyHash))
             {
@@ -1152,6 +1156,10 @@ namespace DataverseDebugger.App.Views
                     {
                         return (null, $"read failed: {ex.Message}");
                     }
+                    if (IsDevToolsOpen())
+                    {
+                        localBody = TryInlineSourceMap(localPath, localBody);
+                    }
                     if (IsHeadMethod(method))
                     {
                         localBody = Array.Empty<byte>();
@@ -1202,6 +1210,10 @@ namespace DataverseDebugger.App.Views
                     catch (Exception ex)
                     {
                         return (null, $"read failed: {ex.Message}");
+                    }
+                    if (IsDevToolsOpen())
+                    {
+                        folderBody = TryInlineSourceMap(candidatePath, folderBody);
                     }
                     if (IsHeadMethod(method))
                     {
@@ -1358,6 +1370,7 @@ namespace DataverseDebugger.App.Views
                 ".html" => "text/html",
                 ".htm" => "text/html",
                 ".json" => "application/json",
+                ".map" => "application/json",
                 ".xml" => "application/xml",
                 ".svg" => "image/svg+xml",
                 ".png" => "image/png",
@@ -1368,6 +1381,36 @@ namespace DataverseDebugger.App.Views
                 ".resx" => "application/xml",
                 _ => "application/octet-stream"
             };
+        }
+
+        private static byte[] TryInlineSourceMap(string scriptPath, byte[] scriptBody)
+        {
+            if (!scriptPath.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
+            {
+                return scriptBody;
+            }
+
+            var mapPath = scriptPath + ".map";
+            if (!File.Exists(mapPath))
+            {
+                return scriptBody;
+            }
+
+            try
+            {
+                var mapBytes = File.ReadAllBytes(mapPath);
+                var mapBase64 = Convert.ToBase64String(mapBytes);
+                var mapLine = $"//# sourceMappingURL=data:application/json;base64,{mapBase64}";
+
+                var scriptText = Encoding.UTF8.GetString(scriptBody);
+                scriptText = Regex.Replace(scriptText, @"(?m)^\s*//# sourceMappingURL=.*$", string.Empty);
+                scriptText = scriptText.TrimEnd() + Environment.NewLine + mapLine + Environment.NewLine;
+                return Encoding.UTF8.GetBytes(scriptText);
+            }
+            catch
+            {
+                return scriptBody;
+            }
         }
 
 
@@ -1445,6 +1488,30 @@ namespace DataverseDebugger.App.Views
 
             _pendingDevToolsOpen = false;
             _webView.CoreWebView2.OpenDevToolsWindow();
+        }
+
+        private bool IsDevToolsOpen()
+        {
+            var core = _webView?.CoreWebView2;
+            if (core == null)
+            {
+                return false;
+            }
+
+            var prop = core.GetType().GetProperty("IsDevToolsWindowOpen");
+            if (prop == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return prop.GetValue(core) as bool? ?? false;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public async Task ApplyBrowserSettingsAsync()

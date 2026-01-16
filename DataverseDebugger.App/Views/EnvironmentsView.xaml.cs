@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.Encodings.Web;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -363,7 +364,13 @@ namespace DataverseDebugger.App.Views
                 {
                     Directory.CreateDirectory(dir);
                 }
-                var json = System.Text.Json.JsonSerializer.Serialize(Profiles, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                var json = System.Text.Json.JsonSerializer.Serialize(
+                    Profiles,
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                    });
                 File.WriteAllText(_storePath, json);
             }
             catch

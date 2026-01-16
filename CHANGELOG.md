@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented here.
 
+## [1.1.0] - 2026-01-16
+### Added
+- Offline, Hybrid, and Online execution modes in Runner and App
+- Plugin overview tab in App
+- WebResource AutoResponder rules (Exact/Wildcard/Regex; ServeLocalFile/ServeFromFolder/ProxyToUrl)
+- Inline source maps when serving local WebResources
+### Fixed
+- Minor fixes
+
 ## [1.0.2] - 2026-01-07
 ### Added
 - Implemented Rest Builder caching

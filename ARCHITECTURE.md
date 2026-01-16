@@ -16,13 +16,13 @@ Modern WPF host (.NET 8) paired with an isolated .NET Framework 4.8 runner that 
 - MSAL authentication with per-environment token cache
 - OData metadata-driven request parsing
 - Embedded DataverseRESTBuilder
+- WebResource AutoResponder overrides (Exact/Wildcard/Regex; local file/folder or proxy)
 
 🔄 **In Progress:**
 - Session persistence (save/reload captures)
 - Enhanced step metadata display
 
 📋 **Planned:**
-- Web resource override/debugging
 - Async step improvements
 
 ## Goals
@@ -30,7 +30,7 @@ Modern WPF host (.NET 8) paired with an isolated .NET Framework 4.8 runner that 
 - Preserve Model-Driven App fidelity via correct routing (proxy vs emulate).
 - Achieve real unload/hot reload by isolating plugin execution in a separate process.
 - Reuse the embedded browser's bearer token for Dataverse calls.
-- Prepare for host-side web resource overrides/debugging.
+- Support host-side web resource overrides/debugging.
 
 ## Non-goals (initial)
 - No in-proc plugin unloading on .NET Framework.
@@ -86,10 +86,10 @@ Modern WPF host (.NET 8) paired with an isolated .NET Framework 4.8 runner that 
   - Flags: trace verbosity, disable async steps, capture defaults (API-only, auto-proxy).
   - Per-environment token cache and WebView cache folders.
 - Authentication: interactive login per environment (MSAL cache) for metadata/catalog fetch; captured request tokens forwarded to runner for proxying.
-- Web resource overrides (future):
-  - Map Dataverse resource names (e.g., `new_/scripts/foo.js`) to local files.
+- Web resource overrides:
+  - AutoResponder rules for WebResources (Exact/Wildcard/Regex; ServeLocalFile/ServeFromFolder/ProxyToUrl).
   - Intercept resource requests; serve local content with correct `Content-Type`.
-  - Support source maps for DevTools debugging.
+  - Inline source maps when serving local JS for DevTools debugging.
 - Debug attach: host lets user pick a running Visual Studio instance and attach to the runner process.
 - Overlay status: runner reload uses the same loading overlay as environment activation; WebView2 is hidden while overlay is visible.
 
@@ -167,3 +167,5 @@ Modern WPF host (.NET 8) paired with an isolated .NET Framework 4.8 runner that 
 - Golden tests: execution tree structure and trace content (runner-side).
 - Integration: host + runner loopback with sample plugin assembly.
 - Health check watchdog: runner liveness + IPC ping.
+
+

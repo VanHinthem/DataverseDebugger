@@ -1,13 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using DataverseDebugger.App.Models;
 using DataverseDebugger.App.Runner;
 using DataverseDebugger.Protocol;
@@ -37,6 +41,7 @@ namespace DataverseDebugger.App.Views
         private static readonly int MaxItems = 500;
         private static readonly int MaxBodyBytes = 4096;
         private static readonly int ProxyDedupWindowMs = 2000;
+        private static readonly HttpClient AutoResponderClient = CreateAutoResponderClient();
         private const string DarkModeFlagParam = "flags=themeOption%3Ddarkmode";
         private const string DarkModeMenuLabel = "🌙 Dark Mode";
         private const string LightModeMenuLabel = "☀ Light Mode";
@@ -84,7 +89,10 @@ namespace DataverseDebugger.App.Views
             _debugMonitorTimer.Tick += OnDebugMonitorTick;
             Loaded += OnLoaded;
             CaptureToggle.IsChecked = _settings.CaptureEnabled;
+            ApiToggle.IsChecked = _settings.ApiOnly;
+            WebResourcesToggle.IsChecked = _settings.CaptureWebResources;
             AutoProxyToggle.IsChecked = _settings.AutoProxy;
+            UpdateCaptureDependentToggles();
             _suppressDebugToggle = true;
             DebugToggle.IsChecked = _settings.AutoDebugMatched;
             _suppressDebugToggle = false;
@@ -92,6 +100,19 @@ namespace DataverseDebugger.App.Views
             {
                 _settings.NavigateUrl = NavigateUrl.Text;
             }
+        }
+
+        private static HttpClient CreateAutoResponderClient()
+        {
+            var handler = new HttpClientHandler
+            {
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli
+            };
+
+            return new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(30)
+            };
         }
 
         private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -188,16 +209,23 @@ namespace DataverseDebugger.App.Views
             }
 
             var originalUrl = e.Request.Uri;
-            var sanitizedUrl = SanitizeUrl(originalUrl);
-            if (!IsAllowed(originalUrl, _settings.ApiOnly))
+            if (!TryCreateUri(originalUrl, out var uri))
             {
                 return;
             }
 
+            if (!IsAllowed(originalUrl, uri, _settings.ApiOnly, _settings.CaptureWebResources))
+            {
+                return;
+            }
+
+            var sanitizedUrl = SanitizeUrl(originalUrl);
             var bodySnippet = ReadRequestBody(e, out var bodyBytes);
             var (headersText, rawHeadersMap) = FlattenHeaders(e.Request.Headers);
             var clientRequestId = TryGetHeader(rawHeadersMap, "x-ms-client-request-id");
             var bodyHash = ComputeBodyHash(bodyBytes);
+            var isApiRequest = IsApiPath(uri);
+            var isWebResourceRequest = IsWebResourceUrl(originalUrl);
 
             if (IsDuplicate(method, originalUrl, clientRequestId, bodyHash))
             {
@@ -224,7 +252,23 @@ namespace DataverseDebugger.App.Views
                 _requests.RemoveAt(0);
             }
 
-            if (_settings.AutoProxy && IsSafeForAutoProxy(method))
+            if (isWebResourceRequest && TryGetAutoResponderRules(out var rules))
+            {
+                var deferral = e.GetDeferral();
+                try
+                {
+                    if (await TryApplyAutoResponderAsync(e, item, originalUrl, method, rules).ConfigureAwait(true))
+                    {
+                        return;
+                    }
+                }
+                finally
+                {
+                    deferral.Complete();
+                }
+            }
+
+            if (_settings.AutoProxy && _settings.ApiOnly && isApiRequest && IsSafeForAutoProxy(method))
             {
                 item.AutoProxied = true;
                 if (ShouldIntercept(method))
@@ -321,17 +365,13 @@ namespace DataverseDebugger.App.Views
             }
         }
 
-        private static bool IsAllowed(string url, bool apiOnly)
+        private static bool TryCreateUri(string url, out Uri uri)
         {
+            uri = null!;
             try
             {
-                var uri = new Uri(url);
-                if (Array.IndexOf(AllowedSchemes, uri.Scheme) < 0)
-                {
-                    return false;
-                }
-
-                return apiOnly ? IsApiPath(uri) : true;
+                uri = new Uri(url);
+                return Array.IndexOf(AllowedSchemes, uri.Scheme) >= 0;
             }
             catch
             {
@@ -339,10 +379,31 @@ namespace DataverseDebugger.App.Views
             }
         }
 
+        private static bool IsAllowed(string originalUrl, Uri uri, bool captureApi, bool captureWebResources)
+        {
+            if (!captureApi && !captureWebResources)
+            {
+                return false;
+            }
+
+            return (captureApi && IsApiPath(uri)) || (captureWebResources && IsWebResourceUrl(originalUrl));
+        }
+
         private static bool IsApiPath(Uri uri)
         {
             var path = uri.AbsolutePath.ToLowerInvariant();
             return path.Contains("/api/");
+        }
+
+        private static bool IsWebResourcePath(Uri uri)
+        {
+            var path = uri.AbsolutePath.ToLowerInvariant();
+            return path.Contains("/webresources/");
+        }
+
+        private static bool IsWebResourceUrl(string url)
+        {
+            return url.IndexOf("/webresources/", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static string SanitizeUrl(string url)
@@ -818,6 +879,497 @@ namespace DataverseDebugger.App.Views
             return null;
         }
 
+        private sealed class AutoResponderMatch
+        {
+            public AutoResponderMatch(WebResourceAutoResponderRule rule, Match? match)
+            {
+                Rule = rule;
+                Match = match;
+            }
+
+            public WebResourceAutoResponderRule Rule { get; }
+            public Match? Match { get; }
+        }
+
+        private sealed class AutoResponderResult
+        {
+            public AutoResponderResult(CoreWebView2WebResourceResponse response, int statusCode, byte[] body, System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> headers, string ruleDescription, string resolvedValue)
+            {
+                Response = response;
+                StatusCode = statusCode;
+                Body = body;
+                Headers = headers;
+                RuleDescription = ruleDescription;
+                ResolvedValue = resolvedValue;
+            }
+
+            public CoreWebView2WebResourceResponse Response { get; }
+            public int StatusCode { get; }
+            public byte[] Body { get; }
+            public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> Headers { get; }
+            public string RuleDescription { get; }
+            public string ResolvedValue { get; }
+        }
+
+        private bool TryGetAutoResponderRules(out IReadOnlyList<WebResourceAutoResponderRule> rules)
+        {
+            rules = Array.Empty<WebResourceAutoResponderRule>();
+            var profile = _currentProfile;
+            if (profile == null || !profile.WebResourceAutoResponderEnabled)
+            {
+                return false;
+            }
+
+            if (profile.WebResourceAutoResponderRules == null || profile.WebResourceAutoResponderRules.Count == 0)
+            {
+                return false;
+            }
+
+            rules = profile.WebResourceAutoResponderRules;
+            return true;
+        }
+
+        private async Task<bool> TryApplyAutoResponderAsync(CoreWebView2WebResourceRequestedEventArgs e, CapturedRequest item, string originalUrl, string method, IReadOnlyList<WebResourceAutoResponderRule> rules)
+        {
+            var match = FindAutoResponderMatch(originalUrl, rules);
+            if (match == null)
+            {
+                return false;
+            }
+
+            TryGetWebResourceName(originalUrl, out var resourceName);
+            item.AutoResponderRule = $"{match.Rule.MatchType}: {match.Rule.Pattern}";
+            var resolvedTarget = BuildAutoResponderResolvedValue(match.Rule, match.Match, resourceName);
+            if (!string.IsNullOrWhiteSpace(resolvedTarget))
+            {
+                item.AutoResponderResolved = resolvedTarget;
+            }
+            item.AutoResponderMatched = true;
+            var (result, failureReason) = await BuildAutoResponderResponseAsync(match.Rule, match.Match, resourceName, method, item.Body).ConfigureAwait(true);
+            if (result == null)
+            {
+                item.AutoResponderStatus = string.IsNullOrWhiteSpace(failureReason) ? "Fallback" : $"Fallback: {failureReason}";
+                return false;
+            }
+
+            item.AutoResponded = true;
+            item.AutoResponderRule = result.RuleDescription;
+            item.AutoResponderResolved = result.ResolvedValue;
+            item.AutoResponderStatus = $"Served ({result.StatusCode})";
+            UpdateCapturedResponse(item, result.StatusCode, result.Body, result.Headers);
+            e.Response = result.Response;
+            return true;
+        }
+
+        private static AutoResponderMatch? FindAutoResponderMatch(string url, IReadOnlyList<WebResourceAutoResponderRule> rules)
+        {
+            foreach (var rule in rules)
+            {
+                if (!rule.Enabled)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(rule.Pattern))
+                {
+                    continue;
+                }
+
+                if (TryMatchAutoResponderRule(rule, url, out var match))
+                {
+                    return new AutoResponderMatch(rule, match);
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TryMatchAutoResponderRule(WebResourceAutoResponderRule rule, string url, out Match? match)
+        {
+            match = null;
+            switch (rule.MatchType)
+            {
+                case WebResourceMatchType.Exact:
+                    return string.Equals(url, rule.Pattern, StringComparison.OrdinalIgnoreCase);
+                case WebResourceMatchType.Wildcard:
+                    var wildcardRegex = BuildWildcardRegex(rule.Pattern);
+                    match = wildcardRegex.Match(url);
+                    return match.Success;
+                case WebResourceMatchType.Regex:
+                    try
+                    {
+                        var regex = new Regex(rule.Pattern, RegexOptions.CultureInvariant);
+                        match = regex.Match(url);
+                        return match.Success;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                default:
+                    return false;
+            }
+        }
+
+        private static Regex BuildWildcardRegex(string pattern)
+        {
+            var escaped = Regex.Escape(pattern);
+            var regexPattern = "^" + escaped.Replace("\\*", ".*").Replace("\\?", ".") + "$";
+            return new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        private static bool TryGetWebResourceName(string url, out string name)
+        {
+            name = string.Empty;
+            var index = url.IndexOf("/WebResources/", StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            var start = index + "/WebResources/".Length;
+            if (start >= url.Length)
+            {
+                return false;
+            }
+
+            var end = url.IndexOfAny(new[] { '?', '#' }, start);
+            if (end < 0)
+            {
+                end = url.Length;
+            }
+
+            var raw = url.Substring(start, end - start).TrimStart('/');
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return false;
+            }
+
+            name = Uri.UnescapeDataString(raw);
+            return true;
+        }
+
+        private static (string FileName, string Extension) GetFileNameParts(string resourceName)
+        {
+            var safe = resourceName ?? string.Empty;
+            return (Path.GetFileNameWithoutExtension(safe), Path.GetExtension(safe));
+        }
+
+        private static string ResolveActionValue(string value, Match? match, string fileName, string extension)
+        {
+            var resolved = value ?? string.Empty;
+            if (match != null && match.Success)
+            {
+                resolved = match.Result(resolved);
+            }
+
+            if (!string.IsNullOrEmpty(fileName))
+            {
+                resolved = resolved.Replace("{filename}", fileName, StringComparison.OrdinalIgnoreCase);
+            }
+            else
+            {
+                resolved = resolved.Replace("{filename}", string.Empty, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!string.IsNullOrEmpty(extension))
+            {
+                resolved = resolved.Replace("{ext}", extension, StringComparison.OrdinalIgnoreCase);
+            }
+            else
+            {
+                resolved = resolved.Replace("{ext}", string.Empty, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return resolved;
+        }
+
+        private static string BuildAutoResponderResolvedValue(WebResourceAutoResponderRule rule, Match? match, string resourceName)
+        {
+            var (fileName, extension) = GetFileNameParts(resourceName);
+            var baseValue = ResolveActionValue(rule.ActionValue, match, fileName, extension).Trim();
+            if (string.IsNullOrWhiteSpace(baseValue))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                switch (rule.ActionType)
+                {
+                    case WebResourceActionType.ServeLocalFile:
+                        return Path.IsPathRooted(baseValue) ? Path.GetFullPath(baseValue) : baseValue;
+                    case WebResourceActionType.ServeFromFolder:
+                        if (string.IsNullOrWhiteSpace(resourceName))
+                        {
+                            return Path.IsPathRooted(baseValue) ? Path.GetFullPath(baseValue) : baseValue;
+                        }
+                        var relativePath = resourceName.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
+                        var combined = Path.Combine(baseValue, relativePath);
+                        return Path.IsPathRooted(combined) ? Path.GetFullPath(combined) : combined;
+                    case WebResourceActionType.ProxyToUrl:
+                    default:
+                        return baseValue;
+                }
+            }
+            catch
+            {
+                return baseValue;
+            }
+        }
+
+        private async Task<(AutoResponderResult? Result, string? FailureReason)> BuildAutoResponderResponseAsync(WebResourceAutoResponderRule rule, Match? match, string resourceName, string method, byte[]? requestBody)
+        {
+            var ruleDescription = $"{rule.MatchType}: {rule.Pattern}";
+            var (fileName, extension) = GetFileNameParts(resourceName);
+
+            switch (rule.ActionType)
+            {
+                case WebResourceActionType.ServeLocalFile:
+                    var localPath = ResolveActionValue(rule.ActionValue, match, fileName, extension).Trim();
+                    if (string.IsNullOrWhiteSpace(localPath))
+                    {
+                        return (null, "path is empty");
+                    }
+
+                    if (!Path.IsPathRooted(localPath))
+                    {
+                        return (null, "path must be absolute");
+                    }
+
+                    localPath = Path.GetFullPath(localPath);
+                    if (!File.Exists(localPath))
+                    {
+                        return (null, $"file not found: {localPath}");
+                    }
+
+                    byte[] localBody;
+                    try
+                    {
+                        localBody = await File.ReadAllBytesAsync(localPath).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        return (null, $"read failed: {ex.Message}");
+                    }
+                    if (IsHeadMethod(method))
+                    {
+                        localBody = Array.Empty<byte>();
+                    }
+                    var localResult = BuildAutoResponderResult(200, "OK", localBody, BuildResponseHeaders(GetContentType(localPath)), ruleDescription, $"ServeLocalFile: {localPath}");
+                    return localResult.Result != null ? (localResult.Result, null) : (null, localResult.FailureReason);
+
+                case WebResourceActionType.ServeFromFolder:
+                    var folderPath = ResolveActionValue(rule.ActionValue, match, fileName, extension).Trim();
+                    if (string.IsNullOrWhiteSpace(folderPath))
+                    {
+                        return (null, "folder is empty");
+                    }
+
+                    folderPath = Path.GetFullPath(folderPath);
+                    if (!Directory.Exists(folderPath))
+                    {
+                        return (null, $"folder not found: {folderPath}");
+                    }
+
+                    if (string.IsNullOrWhiteSpace(resourceName))
+                    {
+                        return (null, "webresource name not found");
+                    }
+
+                    var relativePath = resourceName.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
+                    if (Path.IsPathRooted(relativePath))
+                    {
+                        return (null, "path traversal blocked");
+                    }
+
+                    var candidatePath = Path.GetFullPath(Path.Combine(folderPath, relativePath));
+                    if (!IsUnderBaseFolder(folderPath, candidatePath))
+                    {
+                        return (null, "path traversal blocked");
+                    }
+
+                    if (!File.Exists(candidatePath))
+                    {
+                        return (null, $"file not found: {candidatePath}");
+                    }
+
+                    byte[] folderBody;
+                    try
+                    {
+                        folderBody = await File.ReadAllBytesAsync(candidatePath).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        return (null, $"read failed: {ex.Message}");
+                    }
+                    if (IsHeadMethod(method))
+                    {
+                        folderBody = Array.Empty<byte>();
+                    }
+                    var folderResult = BuildAutoResponderResult(200, "OK", folderBody, BuildResponseHeaders(GetContentType(candidatePath)), ruleDescription, $"ServeFromFolder: {candidatePath}");
+                    return folderResult.Result != null ? (folderResult.Result, null) : (null, folderResult.FailureReason);
+
+                case WebResourceActionType.ProxyToUrl:
+                    var proxyUrl = ResolveActionValue(rule.ActionValue, match, fileName, extension).Trim();
+                    if (string.IsNullOrWhiteSpace(proxyUrl))
+                    {
+                        return (null, "proxy URL is empty");
+                    }
+
+                    if (!Uri.TryCreate(proxyUrl, UriKind.Absolute, out var targetUri) || Array.IndexOf(AllowedSchemes, targetUri.Scheme) < 0)
+                    {
+                        return (null, $"invalid proxy URL: {proxyUrl}");
+                    }
+
+                    try
+                    {
+                        using var request = new HttpRequestMessage(new HttpMethod(method), targetUri);
+                        if (requestBody != null && requestBody.Length > 0 && ShouldSendBody(method))
+                        {
+                            request.Content = new ByteArrayContent(requestBody);
+                        }
+
+                        using var response = await AutoResponderClient.SendAsync(request).ConfigureAwait(false);
+                        if ((int)response.StatusCode >= 400)
+                        {
+                            return (null, $"proxy returned {(int)response.StatusCode}");
+                        }
+                        var proxyBody = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                        if (IsHeadMethod(method))
+                        {
+                            proxyBody = Array.Empty<byte>();
+                        }
+
+                        var contentType = response.Content.Headers.ContentType?.ToString();
+                        var headers = BuildResponseHeaders(contentType);
+                        var proxyResult = BuildAutoResponderResult((int)response.StatusCode, response.ReasonPhrase ?? "OK", proxyBody, headers, ruleDescription, $"ProxyToUrl: {proxyUrl}");
+                        return proxyResult.Result != null ? (proxyResult.Result, null) : (null, proxyResult.FailureReason);
+                    }
+                    catch (Exception ex)
+                    {
+                        return (null, $"proxy failed: {ex.Message}");
+                    }
+
+                default:
+                    return (null, "unsupported action");
+            }
+        }
+
+        private (AutoResponderResult? Result, string? FailureReason) BuildAutoResponderResult(int status, string statusText, byte[] body, System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> headers, string ruleDescription, string resolvedValue)
+        {
+            try
+            {
+                AutoResponderResult? result = null;
+                string? failure = null;
+
+                void BuildResponse()
+                {
+                    var env = _webView?.CoreWebView2?.Environment;
+                    if (env == null)
+                    {
+                        failure = "webview not ready";
+                        return;
+                    }
+
+                    var payload = body ?? Array.Empty<byte>();
+                    var stream = new MemoryStream(payload);
+                    var response = env.CreateWebResourceResponse(stream, status, statusText, ToHeaderString(headers));
+                    result = new AutoResponderResult(response, status, payload, headers, ruleDescription, resolvedValue);
+                }
+
+                if (Dispatcher.CheckAccess())
+                {
+                    BuildResponse();
+                }
+                else
+                {
+                    Dispatcher.Invoke(BuildResponse);
+                }
+
+                return (result, failure);
+            }
+            catch (Exception ex)
+            {
+                return (null, $"response build failed: {ex.Message}");
+            }
+        }
+
+        private static System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> BuildResponseHeaders(string? contentType)
+        {
+            var headers = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(contentType))
+            {
+                headers["Content-Type"] = new System.Collections.Generic.List<string> { contentType };
+            }
+            return headers;
+        }
+
+        private static bool IsHeadMethod(string method)
+        {
+            return string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ShouldSendBody(string method)
+        {
+            return string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string EnsureTrailingSeparator(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return path;
+            }
+
+            if (path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ||
+                path.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+            {
+                return path;
+            }
+
+            return path + Path.DirectorySeparatorChar;
+        }
+
+        private static bool IsUnderBaseFolder(string baseFolder, string candidatePath)
+        {
+            var basePrefix = EnsureTrailingSeparator(baseFolder);
+            return candidatePath.StartsWith(basePrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void UpdateCapturedResponse(CapturedRequest item, int status, byte[] body, System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> headers)
+        {
+            item.ResponseStatus = status;
+            item.ResponseBody = body;
+            item.ResponseHeadersDictionary = headers ?? new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>(StringComparer.OrdinalIgnoreCase);
+            item.ResponseBodyPreview = GetBodyPreview(body);
+            Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+        }
+
+        private static string GetContentType(string path)
+        {
+            var ext = Path.GetExtension(path)?.ToLowerInvariant();
+            return ext switch
+            {
+                ".js" => "application/javascript",
+                ".css" => "text/css",
+                ".html" => "text/html",
+                ".htm" => "text/html",
+                ".json" => "application/json",
+                ".xml" => "application/xml",
+                ".svg" => "image/svg+xml",
+                ".png" => "image/png",
+                ".jpg" => "image/jpeg",
+                ".jpeg" => "image/jpeg",
+                ".gif" => "image/gif",
+                ".txt" => "text/plain",
+                ".resx" => "application/xml",
+                _ => "application/octet-stream"
+            };
+        }
+
 
         private void OnSettingsChanged(object sender, TextChangedEventArgs e)
         {
@@ -837,6 +1389,17 @@ namespace DataverseDebugger.App.Views
             if (e.PropertyName == nameof(CaptureSettingsModel.CaptureEnabled))
             {
                 CaptureToggle.IsChecked = _settings.CaptureEnabled;
+                UpdateCaptureDependentToggles();
+            }
+
+            if (e.PropertyName == nameof(CaptureSettingsModel.ApiOnly))
+            {
+                ApiToggle.IsChecked = _settings.ApiOnly;
+            }
+
+            if (e.PropertyName == nameof(CaptureSettingsModel.CaptureWebResources))
+            {
+                WebResourcesToggle.IsChecked = _settings.CaptureWebResources;
             }
 
             if (e.PropertyName == nameof(CaptureSettingsModel.AutoProxy))
@@ -931,9 +1494,33 @@ namespace DataverseDebugger.App.Views
         private void OnCaptureToggleChanged(object sender, RoutedEventArgs e)
         {
             _settings.CaptureEnabled = CaptureToggle.IsChecked == true;
+            UpdateCaptureDependentToggles();
         }
 
-        public void ApplyEnvironment(string? navigateUrl, bool apiOnly, bool autoProxy)
+        private void OnApiToggleChanged(object sender, RoutedEventArgs e)
+        {
+            _settings.ApiOnly = ApiToggle.IsChecked == true;
+        }
+
+        private void OnWebResourcesToggleChanged(object sender, RoutedEventArgs e)
+        {
+            _settings.CaptureWebResources = WebResourcesToggle.IsChecked == true;
+        }
+
+        private void UpdateCaptureDependentToggles()
+        {
+            var enabled = _settings.CaptureEnabled;
+            ApiToggleGroup.IsEnabled = enabled;
+            WebResourcesToggleGroup.IsEnabled = enabled;
+            AutoProxyToggleGroup.IsEnabled = enabled;
+            DebugToggleGroup.IsEnabled = enabled;
+            ApiToggleGroup.Opacity = enabled ? 1 : 0.5;
+            WebResourcesToggleGroup.Opacity = enabled ? 1 : 0.5;
+            AutoProxyToggleGroup.Opacity = enabled ? 1 : 0.5;
+            DebugToggleGroup.Opacity = enabled ? 1 : 0.5;
+        }
+
+        public void ApplyEnvironment(string? navigateUrl, bool apiOnly, bool captureWebResources, bool autoProxy)
         {
             if (!string.IsNullOrWhiteSpace(navigateUrl))
             {
@@ -944,6 +1531,7 @@ namespace DataverseDebugger.App.Views
                 NavigateToDefault();
             }
             _settings.ApiOnly = apiOnly;
+            _settings.CaptureWebResources = captureWebResources;
             _settings.AutoProxy = autoProxy;
             if (!string.IsNullOrWhiteSpace(navigateUrl) && _webViewReady)
             {
@@ -951,7 +1539,7 @@ namespace DataverseDebugger.App.Views
             }
         }
 
-        public async Task ApplyEnvironmentAsync(string? navigateUrl, bool apiOnly, bool autoProxy, string? webViewCachePath)
+        public async Task ApplyEnvironmentAsync(string? navigateUrl, bool apiOnly, bool captureWebResources, bool autoProxy, string? webViewCachePath)
         {
             _userDataFolder = webViewCachePath;
             var requiresRecreate = _webViewReady && !string.Equals(_userDataFolder, _currentUserDataFolder, StringComparison.OrdinalIgnoreCase);
@@ -961,7 +1549,7 @@ namespace DataverseDebugger.App.Views
                 _webViewReady = false;
             }
             await EnsureWebViewAsync();
-            ApplyEnvironment(navigateUrl, apiOnly, autoProxy);
+            ApplyEnvironment(navigateUrl, apiOnly, captureWebResources, autoProxy);
         }
 
         private void CreateWebViewControl()

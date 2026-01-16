@@ -3,10 +3,22 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             xmlns:models="clr-namespace:DataverseDebugger.App.Models"
              mc:Ignorable="d" 
              d:DesignHeight="300" d:DesignWidth="400">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <ObjectDataProvider x:Key="WebResourceMatchTypes" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="models:WebResourceMatchType"/>
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
+        <ObjectDataProvider x:Key="WebResourceActionTypes" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="models:WebResourceActionType"/>
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
         <Style TargetType="Separator">
             <Setter Property="Background" Value="{DynamicResource ThemeBorderBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
@@ -91,6 +103,49 @@
                              BorderThickness="1"
                              Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
 
+                    <TextBlock Text="WebResources" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="0 8 0 2"/>
+                    <CheckBox x:Name="AutoResponderEnabledCheck" Content="Enable AutoResponder" Style="{DynamicResource ModernCheckBox}" Margin="0 0 0 4"/>
+                    <DataGrid x:Name="AutoResponderRulesGrid"
+                              Height="140"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              HeadersVisibility="Column"
+                              SelectionMode="Single"
+                              SelectionChanged="OnAutoResponderRuleSelectionChanged"
+                              Background="{DynamicResource ThemeSurfaceBrush}"
+                              BorderBrush="{DynamicResource ThemeBorderBrush}"
+                              BorderThickness="1"
+                              Foreground="{DynamicResource ThemeTextSecondaryBrush}">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Enabled" Binding="{Binding Enabled, Mode=TwoWay}" Width="70"/>
+                            <DataGridComboBoxColumn Header="Match"
+                                                    SelectedItemBinding="{Binding MatchType, Mode=TwoWay}"
+                                                    ItemsSource="{Binding Source={StaticResource WebResourceMatchTypes}}"
+                                                    Width="90"/>
+                            <DataGridTextColumn Header="Pattern" Binding="{Binding Pattern, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                            <DataGridComboBoxColumn Header="Action"
+                                                    SelectedItemBinding="{Binding ActionType, Mode=TwoWay}"
+                                                    ItemsSource="{Binding Source={StaticResource WebResourceActionTypes}}"
+                                                    Width="110"/>
+                            <DataGridTextColumn Header="Value" Binding="{Binding ActionValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <StackPanel Orientation="Horizontal" Margin="0 6 0 0">
+                        <Button x:Name="AutoResponderAddButton" Width="80" Height="26" Style="{DynamicResource ModernToolbarButton}" Click="OnAutoResponderAddRule">
+                            <TextBlock Text="Add"/>
+                        </Button>
+                        <Button x:Name="AutoResponderRemoveButton" Width="90" Height="26" Margin="6 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnAutoResponderRemoveRule">
+                            <TextBlock Text="Remove"/>
+                        </Button>
+                        <Button x:Name="AutoResponderMoveUpButton" Width="90" Height="26" Margin="6 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnAutoResponderMoveUpRule">
+                            <TextBlock Text="Move up"/>
+                        </Button>
+                        <Button x:Name="AutoResponderMoveDownButton" Width="100" Height="26" Margin="6 0 0 0" Style="{DynamicResource ModernToolbarButton}" Click="OnAutoResponderMoveDownRule">
+                            <TextBlock Text="Move down"/>
+                        </Button>
+                    </StackPanel>
+
                     <Separator Margin="0 8 0 8"/>
                     <TextBlock Text="Runner defaults" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 4 0 4">
@@ -100,7 +155,8 @@
                     <Separator Margin="0 8 0 8"/>
                     <TextBlock Text="Capture defaults" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Margin="0 4 0 4">
-                        <CheckBox x:Name="ApiOnlyCheck" Content="API only" Margin="0 0 0 0" IsChecked="True" Style="{DynamicResource ModernCheckBox}"/>
+                        <CheckBox x:Name="ApiOnlyCheck" Content="API" Margin="0 0 12 0" IsChecked="True" Style="{DynamicResource ModernCheckBox}"/>
+                        <CheckBox x:Name="WebResourcesCheck" Content="WebResources" Margin="0 0 0 0" Style="{DynamicResource ModernCheckBox}"/>
                     </StackPanel>
 
                     <Separator Margin="0 8 0 8"/>

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here.
 
+## [1.1.1] - 2026-02-09
+### Fixed
+- WebView network override settings and improve DevTools integration
+
+
 ## [1.1.0] - 2026-01-16
 ### Added
 - Offline, Hybrid, and Online execution modes in Runner and App

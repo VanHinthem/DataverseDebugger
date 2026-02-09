@@ -59,6 +59,7 @@ namespace DataverseDebugger.App.Views
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
+        private const string WebViewStartupArguments = "--disable-http-cache --disable-service-worker";
         private const string RestMetadataHeaderName = "x-drb-metadata";
         private const string RestMetadataCacheKeyHeaderName = "x-drb-cachekey";
         private readonly RunnerClient _runnerClient;
@@ -80,6 +81,7 @@ namespace DataverseDebugger.App.Views
         private EnvironmentProfile? _activeProfile;
         private bool _suppressDebugToggle;
         private string? _lastCollectionFolder;
+        private bool _networkOverrideStatusLogged;
 
         public Func<CapturedRequest, Task>? BeforeAutoProxyAsync { get; set; }
         public Func<CapturedRequest, ExecuteResponse, Task>? AfterAutoProxyAsync { get; set; }
@@ -220,21 +222,23 @@ namespace DataverseDebugger.App.Views
                     CreateWebViewControl();
                 }
 
-                CoreWebView2Environment? env = null;
+                var envOptions = new CoreWebView2EnvironmentOptions
+                {
+                    AdditionalBrowserArguments = WebViewStartupArguments
+                };
+
+                CoreWebView2Environment env;
                 if (!string.IsNullOrWhiteSpace(_userDataFolder))
                 {
                     Directory.CreateDirectory(_userDataFolder);
-                    env = await CoreWebView2Environment.CreateAsync(userDataFolder: _userDataFolder);
-                }
-
-                if (env != null)
-                {
-                    await _webView!.EnsureCoreWebView2Async(env);
+                    env = await CoreWebView2Environment.CreateAsync(userDataFolder: _userDataFolder, options: envOptions);
                 }
                 else
                 {
-                    await _webView!.EnsureCoreWebView2Async();
+                    env = await CoreWebView2Environment.CreateAsync(options: envOptions);
                 }
+
+                await _webView!.EnsureCoreWebView2Async(env);
 
                 if (_webView.CoreWebView2 != null && !_webViewReady)
                 {
@@ -311,6 +315,7 @@ namespace DataverseDebugger.App.Views
         private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
         {
             UpdateNavButtons();
+            QueueApplyBrowserSettings();
             QueueApplyTheme();
         }
 
@@ -1575,9 +1580,11 @@ namespace DataverseDebugger.App.Views
             NavigateToRestBuilder();
         }
 
-        private void OnDevToolsClick(object sender, RoutedEventArgs e)
+        private async void OnDevToolsClick(object sender, RoutedEventArgs e)
         {
+            await ApplyBrowserSettingsAsync();
             _webView?.CoreWebView2?.OpenDevToolsWindow();
+            QueueApplyBrowserSettings();
         }
 
         private async Task ExecuteCollectionActionAsync(string actionName)
@@ -1718,13 +1725,28 @@ namespace DataverseDebugger.App.Views
             {
                 await core.CallDevToolsProtocolMethodAsync("Network.enable", "{}");
             }
-            catch
+            catch (Exception ex)
+            {
+                LogService.Append($"[RestBuilder] Failed to enable DevTools network domain: {ex.Message}");
+                return;
+            }
+
+            var cacheDisabledSet = await TrySetDevToolsBoolAsync(core, "Network.setCacheDisabled", "cacheDisabled", true);
+            var bypassServiceWorkerSet = await TrySetDevToolsBoolAsync(core, "Network.setBypassServiceWorker", "bypass", true);
+
+            if (_networkOverrideStatusLogged)
             {
                 return;
             }
 
-            await TrySetDevToolsBoolAsync(core, "Network.setCacheDisabled", "cacheDisabled", _browserSettings.DisableCaching);
-            await TrySetDevToolsBoolAsync(core, "Network.setBypassServiceWorker", "bypass", _browserSettings.BypassServiceWorker);
+            _networkOverrideStatusLogged = true;
+            if (cacheDisabledSet && bypassServiceWorkerSet)
+            {
+                LogService.Append("[RestBuilder] Applied WebView network overrides: cacheDisabled=true, bypassServiceWorker=true.");
+                return;
+            }
+
+            LogService.Append($"[RestBuilder] WebView network overrides partially applied. cacheDisabled={(cacheDisabledSet ? "ok" : "failed")}, bypassServiceWorker={(bypassServiceWorkerSet ? "ok" : "failed")}.");
         }
 
         private void QueueApplyBrowserSettings()
@@ -1752,16 +1774,18 @@ namespace DataverseDebugger.App.Views
             Dispatcher.BeginInvoke(new Action(() => _ = ApplyThemeToWebViewAsync()), DispatcherPriority.Background);
         }
 
-        private static async Task TrySetDevToolsBoolAsync(CoreWebView2 core, string method, string prop, bool value)
+        private static async Task<bool> TrySetDevToolsBoolAsync(CoreWebView2 core, string method, string prop, bool value)
         {
             try
             {
                 var json = $"{{\"{prop}\":{value.ToString().ToLowerInvariant()}}}";
                 await core.CallDevToolsProtocolMethodAsync(method, json);
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
-                // best effort
+                LogService.Append($"[RestBuilder] DevTools call failed: {method} -> {ex.Message}");
+                return false;
             }
         }
 
@@ -1787,6 +1811,8 @@ namespace DataverseDebugger.App.Views
 
         private void CreateWebViewControl()
         {
+            _networkOverrideStatusLogged = false;
+
             if (_webView != null)
             {
                 try
